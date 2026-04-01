@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CNAME取得ツール</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 15px;
+      background: #f0f2f5;
+      color: #222;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1a237e;
+      color: white;
+      padding: 14px 16px;
+      font-size: 17px;
+      font-weight: bold;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+
+    .container { padding: 12px; max-width: 640px; margin: 0 auto; }
+
+    .card {
+      background: white;
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    }
+
+    .card-title {
+      font-size: 13px;
+      font-weight: bold;
+      color: #555;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 15px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background: white;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23666' stroke-width='2' fill='none'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+    }
+
+    .course-list { display: flex; flex-direction: column; gap: 8px; }
+
+    .radio-item {
+      display: flex;
+      align-items: center;
+      padding: 10px 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .radio-item:has(input:checked) { border-color: #1a237e; background: #e8eaf6; }
+    .radio-item input { margin-right: 10px; width: 18px; height: 18px; accent-color: #1a237e; }
+
+    .race-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+
+    .race-btn {
+      position: relative;
+      padding: 10px 4px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      text-align: center;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: bold;
+      color: #444;
+      background: white;
+      transition: all 0.15s;
+      user-select: none;
+    }
+    .race-btn input {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .race-btn:has(input:checked) {
+      border-color: #1a237e;
+      background: #1a237e;
+      color: white;
+    }
+
+    .select-all-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .btn-sm {
+      flex: 1;
+      padding: 8px;
+      font-size: 13px;
+      border: 1px solid #bbb;
+      border-radius: 6px;
+      background: #f5f5f5;
+      cursor: pointer;
+      color: #333;
+    }
+    .btn-sm:active { background: #e0e0e0; }
+
+    .btn-fetch {
+      width: 100%;
+      padding: 14px;
+      font-size: 16px;
+      font-weight: bold;
+      background: #1a237e;
+      color: white;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn-fetch:active { background: #283593; }
+    .btn-fetch:disabled { background: #9fa8da; cursor: not-allowed; }
+
+    .status {
+      text-align: center;
+      margin-top: 10px;
+      font-size: 14px;
+      color: #555;
+      min-height: 20px;
+    }
+    .status.error { color: #c62828; }
+
+    .result-card {
+      background: white;
+      border-radius: 10px;
+      margin-bottom: 10px;
+      overflow: hidden;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    }
+    .result-header {
+      background: #1a237e;
+      color: white;
+      padding: 10px 14px;
+      font-weight: bold;
+      font-size: 15px;
+    }
+    .result-body { padding: 12px 14px; }
+
+    .cname-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .cname-label {
+      font-size: 11px;
+      font-weight: bold;
+      color: #888;
+      width: 44px;
+      flex-shrink: 0;
+    }
+    .cname-value {
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      color: #222;
+      flex: 1;
+      background: #f5f5f5;
+      padding: 6px 8px;
+      border-radius: 6px;
+      word-break: break-all;
+    }
+    .cname-value.error { color: #c62828; background: #ffebee; }
+
+    .btn-copy {
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: bold;
+      background: #43a047;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 4px;
+    }
+    .btn-copy:active { background: #388e3c; }
+    .btn-copy.copied { background: #757575; }
+
+    /* 曜日カラー */
+    .sat { color: #1565c0; font-weight: bold; }
+    .sun { color: #c62828; font-weight: bold; }
+
+    .loading-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 200;
+      justify-content: center;
+      align-items: center;
+    }
+    .loading-overlay.show { display: flex; }
+    .loading-box {
+      background: white;
+      border-radius: 12px;
+      padding: 28px 36px;
+      text-align: center;
+    }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 4px solid #e0e0e0;
+      border-top-color: #1a237e;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 14px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<header>🏇 CNAME取得ツール</header>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-box">
+    <div class="spinner"></div>
+    <div id="loadingMsg">読み込み中...</div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- 開催日 -->
+  <div class="card">
+    <div class="card-title">開催日</div>
+    <select id="dateSelect"></select>
+  </div>
+
+  <!-- 開催場 -->
+  <div class="card">
+    <div class="card-title">開催場</div>
+    <div class="course-list" id="courseArea"></div>
+  </div>
+
+  <!-- レース番号 -->
+  <div class="card">
+    <div class="card-title">レース番号</div>
+    <div class="select-all-row">
+      <button class="btn-sm" onclick="selectAllRaces()">全選択</button>
+      <button class="btn-sm" onclick="clearAllRaces()">全解除</button>
+    </div>
+    <div class="race-grid" id="raceArea"></div>
+  </div>
+
+  <!-- 取得ボタン -->
+  <div class="card">
+    <button class="btn-fetch" id="fetchBtn">CNAMEを取得</button>
+    <div class="status" id="status"></div>
+  </div>
+
+  <!-- 結果 -->
+  <div id="resultArea"></div>
+
+</div>
+
+<script>
+  // ★ここにGAS WebAppのURLを設定してください★
+  const GAS_URL = 'https://script.google.com/macros/s/AKfycbyrKHuevq-cF0RVF0tv4cgKl2ytdqe8cHNipTYtptGrEmU7wWmJhzsm4dAXxpY7Kz0asQ/exec';
+
+  let scheduleData = [];
+  let currentDate = null;
+
+  window.onload = async function () {
+    showLoading('開催情報を取得中...');
+    try {
+      const res = await fetch(GAS_URL + '?action=getSchedule');
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error);
+      scheduleData = json.data || [];
+      if (scheduleData.length === 0) throw new Error('開催情報が取得できませんでした');
+      populateDateSelect();
+    } catch (e) {
+      setStatus('初期化エラー: ' + e.message, true);
+    } finally {
+      hideLoading();
+    }
+  };
+
+  document.getElementById('fetchBtn').addEventListener('click', onFetchClick);
+
+  // ---- 開催日セレクト ----
+  function populateDateSelect() {
+    const sel = document.getElementById('dateSelect');
+    sel.innerHTML = '';
+    scheduleData.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.dateLabel;
+      opt.textContent = d.dateLabel;
+      if (d.dateLabel.includes('土曜')) opt.className = 'sat';
+      else if (d.dateLabel.includes('日曜')) opt.className = 'sun';
+      sel.appendChild(opt);
+    });
+    currentDate = scheduleData[0].dateLabel;
+    updateDateColor(sel);
+    populateCourseArea();
+
+    sel.addEventListener('change', () => {
+      currentDate = sel.value;
+      updateDateColor(sel);
+      populateCourseArea();
+    });
+  }
+
+  function updateDateColor(sel) {
+    const label = sel.value;
+    sel.style.color = label.includes('土曜') ? '#1565c0' : label.includes('日曜') ? '#c62828' : '';
+    sel.style.fontWeight = 'bold';
+  }
+
+  // ---- 開催場 ----
+  function populateCourseArea() {
+    const area = document.getElementById('courseArea');
+    area.innerHTML = '';
+    const dateBlock = scheduleData.find(d => d.dateLabel === currentDate);
+    if (!dateBlock) return;
+
+    dateBlock.meetings.forEach((m, idx) => {
+      const id = 'course_' + idx;
+      const label = document.createElement('label');
+      label.className = 'radio-item';
+      label.htmlFor = id;
+
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'course';
+      radio.value = m.course;
+      radio.id = id;
+      if (idx === 0) radio.checked = true;
+
+      label.appendChild(radio);
+      label.appendChild(document.createTextNode(m.label + '（' + m.course + '）'));
+      area.appendChild(label);
+    });
+
+    populateRaceArea();
+  }
+
+  // ---- レース番号 ----
+  function populateRaceArea() {
+    const area = document.getElementById('raceArea');
+    area.innerHTML = '';
+    for (let i = 1; i <= 12; i++) {
+      const id = 'race_' + i;
+      const label = document.createElement('label');
+      label.className = 'race-btn';
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = i + 'R';
+      cb.id = id;
+
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(i + 'R'));
+      area.appendChild(label);
+    }
+  }
+
+  function selectAllRaces() {
+    document.querySelectorAll('#raceArea input[type="checkbox"]').forEach(cb => cb.checked = true);
+  }
+  function clearAllRaces() {
+    document.querySelectorAll('#raceArea input[type="checkbox"]').forEach(cb => cb.checked = false);
+  }
+
+  // ---- 取得ボタン ----
+  async function onFetchClick() {
+    const selectedDate = document.getElementById('dateSelect').value;
+    const courseRadio = document.querySelector('input[name="course"]:checked');
+    const selectedCourse = courseRadio ? courseRadio.value : null;
+
+    if (!selectedDate || !selectedCourse) {
+      alert('開催日と開催場を選択してください');
+      return;
+    }
+
+    const races = Array.from(
+      document.querySelectorAll('#raceArea input[type="checkbox"]:checked')
+    ).map(cb => cb.value);
+
+    if (races.length === 0) {
+      alert('レースを1つ以上選択してください');
+      return;
+    }
+
+    document.getElementById('resultArea').innerHTML = '';
+    showLoading('CNAME取得中...');
+    setStatus('');
+    document.getElementById('fetchBtn').disabled = true;
+
+    try {
+      const res = await fetch(GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' }, // GASのCORS対策でtext/plainを使用
+        body: JSON.stringify({
+          action: 'getCnames',
+          dateLabel: selectedDate,
+          course: selectedCourse,
+          races: races
+        })
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error);
+      renderResults(json.data);
+    } catch (e) {
+      setStatus('エラー: ' + e.message, true);
+    } finally {
+      hideLoading();
+      document.getElementById('fetchBtn').disabled = false;
+    }
+  }
+
+  // ---- 結果表示 ----
+  function renderResults(data) {
+    const area = document.getElementById('resultArea');
+    area.innerHTML = '';
+
+    data.forEach(item => {
+      const card = document.createElement('div');
+      card.className = 'result-card';
+
+      const header = document.createElement('div');
+      header.className = 'result-header';
+      header.textContent = item.course + ' ' + item.race;
+      card.appendChild(header);
+
+      const body = document.createElement('div');
+      body.className = 'result-body';
+
+      if (item.error) {
+        const errDiv = document.createElement('div');
+        errDiv.className = 'cname-value error';
+        errDiv.textContent = 'エラー: ' + item.error;
+        body.appendChild(errDiv);
+      } else {
+        [
+          { label: '単複', value: item.pw151 },
+          { label: '枠連', value: item.pw153 },
+          { label: '馬単', value: item.pw156 }
+        ].forEach(({ label, value }) => {
+          const row = document.createElement('div');
+          row.className = 'cname-row';
+
+          const lbl = document.createElement('div');
+          lbl.className = 'cname-label';
+          lbl.textContent = label;
+
+          const val = document.createElement('div');
+          val.className = 'cname-value';
+          val.textContent = value;
+
+          row.appendChild(lbl);
+          row.appendChild(val);
+          body.appendChild(row);
+        });
+
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'btn-copy';
+        copyBtn.textContent = 'コピー';
+        copyBtn.addEventListener('click', () => {
+          const text = [item.pw151, item.pw153, item.pw156].join('\n');
+          navigator.clipboard.writeText(text).then(() => {
+            copyBtn.textContent = 'コピー完了 ✓';
+            copyBtn.classList.add('copied');
+            setTimeout(() => {
+              copyBtn.textContent = 'コピー';
+              copyBtn.classList.remove('copied');
+            }, 2000);
+          });
+        });
+        body.appendChild(copyBtn);
+      }
+
+      card.appendChild(body);
+      area.appendChild(card);
+    });
+  }
+
+  // ---- ローディング ----
+  function showLoading(msg) {
+    document.getElementById('loadingMsg').textContent = msg || '処理中...';
+    document.getElementById('loadingOverlay').classList.add('show');
+  }
+  function hideLoading() {
+    document.getElementById('loadingOverlay').classList.remove('show');
+  }
+  function setStatus(msg, isError) {
+    const el = document.getElementById('status');
+    el.textContent = msg;
+    el.className = 'status' + (isError ? ' error' : '');
+  }
+</script>
+</body>
+</html>
+
