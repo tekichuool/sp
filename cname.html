@@ -202,10 +202,6 @@
     .btn-copy:active { background: #388e3c; }
     .btn-copy.copied { background: #757575; }
 
-    /* 曜日カラー */
-    .sat { color: #1565c0; font-weight: bold; }
-    .sun { color: #c62828; font-weight: bold; }
-
     .loading-overlay {
       display: none;
       position: fixed;
@@ -246,19 +242,16 @@
 
 <div class="container">
 
-  <!-- 開催日 -->
   <div class="card">
     <div class="card-title">開催日</div>
     <select id="dateSelect"></select>
   </div>
 
-  <!-- 開催場 -->
   <div class="card">
     <div class="card-title">開催場</div>
     <div class="course-list" id="courseArea"></div>
   </div>
 
-  <!-- レース番号 -->
   <div class="card">
     <div class="card-title">レース番号</div>
     <div class="select-all-row">
@@ -268,20 +261,17 @@
     <div class="race-grid" id="raceArea"></div>
   </div>
 
-  <!-- 取得ボタン -->
   <div class="card">
     <button class="btn-fetch" id="fetchBtn">CNAMEを取得</button>
     <div class="status" id="status"></div>
   </div>
 
-  <!-- 結果 -->
   <div id="resultArea"></div>
 
 </div>
 
 <script>
-  // ★ここにGAS WebAppのURLを設定してください★
-  const GAS_URL = 'https://script.google.com/macros/s/AKfycbyrKHuevq-cF0RVF0tv4cgKl2ytdqe8cHNipTYtptGrEmU7wWmJhzsm4dAXxpY7Kz0asQ/exec';
+  const GAS_URL = 'https://script.google.com/macros/s/AKfycbwDjaemukb4WjRJfQtFA0qh70zDAj7tUv4axWMZV7xgycWPkkzurjf5dRu_smV86GW-JA/exec';
 
   let scheduleData = [];
   let currentDate = null;
@@ -289,11 +279,17 @@
   window.onload = async function () {
     showLoading('開催情報を取得中...');
     try {
-      const res = await fetch(GAS_URL + '?action=getSchedule');
+      const res = await fetch(GAS_URL + '?action=getSchedule', {
+        method: 'GET',
+        mode: 'cors',
+        redirect: 'follow'
+      });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error);
       scheduleData = json.data || [];
-      if (scheduleData.length === 0) throw new Error('開催情報が取得できませんでした');
+      if (scheduleData.length === 0) {
+        throw new Error('今週のオッズは未発表です。開催日前日〜当日にご利用ください。');
+      }
       populateDateSelect();
     } catch (e) {
       setStatus('初期化エラー: ' + e.message, true);
@@ -304,7 +300,6 @@
 
   document.getElementById('fetchBtn').addEventListener('click', onFetchClick);
 
-  // ---- 開催日セレクト ----
   function populateDateSelect() {
     const sel = document.getElementById('dateSelect');
     sel.innerHTML = '';
@@ -312,14 +307,11 @@
       const opt = document.createElement('option');
       opt.value = d.dateLabel;
       opt.textContent = d.dateLabel;
-      if (d.dateLabel.includes('土曜')) opt.className = 'sat';
-      else if (d.dateLabel.includes('日曜')) opt.className = 'sun';
       sel.appendChild(opt);
     });
     currentDate = scheduleData[0].dateLabel;
     updateDateColor(sel);
     populateCourseArea();
-
     sel.addEventListener('change', () => {
       currentDate = sel.value;
       updateDateColor(sel);
@@ -329,52 +321,44 @@
 
   function updateDateColor(sel) {
     const label = sel.value;
-    sel.style.color = label.includes('土曜') ? '#1565c0' : label.includes('日曜') ? '#c62828' : '';
+    sel.style.color = label.includes('土曜') ? '#1565c0'
+                    : label.includes('日曜') ? '#c62828' : '';
     sel.style.fontWeight = 'bold';
   }
 
-  // ---- 開催場 ----
   function populateCourseArea() {
     const area = document.getElementById('courseArea');
     area.innerHTML = '';
     const dateBlock = scheduleData.find(d => d.dateLabel === currentDate);
     if (!dateBlock) return;
-
     dateBlock.meetings.forEach((m, idx) => {
       const id = 'course_' + idx;
       const label = document.createElement('label');
       label.className = 'radio-item';
       label.htmlFor = id;
-
       const radio = document.createElement('input');
       radio.type = 'radio';
       radio.name = 'course';
       radio.value = m.course;
       radio.id = id;
       if (idx === 0) radio.checked = true;
-
       label.appendChild(radio);
-      label.appendChild(document.createTextNode(m.label + '（' + m.course + '）'));
+      label.appendChild(document.createTextNode(' ' + m.label + '（' + m.course + '）'));
       area.appendChild(label);
     });
-
     populateRaceArea();
   }
 
-  // ---- レース番号 ----
   function populateRaceArea() {
     const area = document.getElementById('raceArea');
     area.innerHTML = '';
     for (let i = 1; i <= 12; i++) {
-      const id = 'race_' + i;
       const label = document.createElement('label');
       label.className = 'race-btn';
-
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.value = i + 'R';
-      cb.id = id;
-
+      cb.id = 'race_' + i;
       label.appendChild(cb);
       label.appendChild(document.createTextNode(i + 'R'));
       area.appendChild(label);
@@ -388,21 +372,17 @@
     document.querySelectorAll('#raceArea input[type="checkbox"]').forEach(cb => cb.checked = false);
   }
 
-  // ---- 取得ボタン ----
   async function onFetchClick() {
     const selectedDate = document.getElementById('dateSelect').value;
     const courseRadio = document.querySelector('input[name="course"]:checked');
     const selectedCourse = courseRadio ? courseRadio.value : null;
-
     if (!selectedDate || !selectedCourse) {
       alert('開催日と開催場を選択してください');
       return;
     }
-
     const races = Array.from(
       document.querySelectorAll('#raceArea input[type="checkbox"]:checked')
     ).map(cb => cb.value);
-
     if (races.length === 0) {
       alert('レースを1つ以上選択してください');
       return;
@@ -414,15 +394,17 @@
     document.getElementById('fetchBtn').disabled = true;
 
     try {
-      const res = await fetch(GAS_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' }, // GASのCORS対策でtext/plainを使用
-        body: JSON.stringify({
-          action: 'getCnames',
-          dateLabel: selectedDate,
-          course: selectedCourse,
-          races: races
-        })
+      // 日本語パラメータを確実にエンコードして渡す
+      const params = new URLSearchParams();
+      params.set('action', 'getCnames');
+      params.set('dateLabel', selectedDate);
+      params.set('course', selectedCourse);
+      params.set('races', JSON.stringify(races));
+
+      const res = await fetch(GAS_URL + '?' + params.toString(), {
+        method: 'GET',
+        mode: 'cors',
+        redirect: 'follow'
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error);
@@ -435,11 +417,9 @@
     }
   }
 
-  // ---- 結果表示 ----
   function renderResults(data) {
     const area = document.getElementById('resultArea');
     area.innerHTML = '';
-
     data.forEach(item => {
       const card = document.createElement('div');
       card.className = 'result-card';
@@ -465,15 +445,12 @@
         ].forEach(({ label, value }) => {
           const row = document.createElement('div');
           row.className = 'cname-row';
-
           const lbl = document.createElement('div');
           lbl.className = 'cname-label';
           lbl.textContent = label;
-
           const val = document.createElement('div');
           val.className = 'cname-value';
           val.textContent = value;
-
           row.appendChild(lbl);
           row.appendChild(val);
           body.appendChild(row);
@@ -501,7 +478,6 @@
     });
   }
 
-  // ---- ローディング ----
   function showLoading(msg) {
     document.getElementById('loadingMsg').textContent = msg || '処理中...';
     document.getElementById('loadingOverlay').classList.add('show');
