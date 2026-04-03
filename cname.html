@@ -276,26 +276,26 @@
   let scheduleData = [];
   let currentDate = null;
 
-  window.onload = async function () {
+  // 1. ページ読み込み時のスケジュール取得
+  window.onload = function () {
     showLoading('開催情報を取得中...');
-    try {
-      const res = await fetch(GAS_URL + '?action=getSchedule', {
-        method: 'GET',
-        mode: 'cors',
-        redirect: 'follow'
-      });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error);
-      scheduleData = json.data || [];
-      if (scheduleData.length === 0) {
-        throw new Error('今週のオッズは未発表です。開催日前日〜当日にご利用ください。');
-      }
-      populateDateSelect();
-    } catch (e) {
-      setStatus('初期化エラー: ' + e.message, true);
-    } finally {
-      hideLoading();
-    }
+    
+    // google.script.run を使用
+    google.script.run
+      .withSuccessHandler(function(data) {
+        scheduleData = data || [];
+        if (scheduleData.length === 0) {
+          setStatus('今週のオッズは未発表です。', true);
+        } else {
+          populateDateSelect();
+        }
+        hideLoading();
+      })
+      .withFailureHandler(function(err) {
+        setStatus('初期化エラー: ' + err.message, true);
+        hideLoading();
+      })
+      .getSchedule();
   };
 
   document.getElementById('fetchBtn').addEventListener('click', onFetchClick);
@@ -372,49 +372,44 @@
     document.querySelectorAll('#raceArea input[type="checkbox"]').forEach(cb => cb.checked = false);
   }
 
+    // 2. CNAME取得ボタンクリック時
   async function onFetchClick() {
     const selectedDate = document.getElementById('dateSelect').value;
     const courseRadio = document.querySelector('input[name="course"]:checked');
     const selectedCourse = courseRadio ? courseRadio.value : null;
+    
     if (!selectedDate || !selectedCourse) {
       alert('開催日と開催場を選択してください');
       return;
     }
+    
     const races = Array.from(
       document.querySelectorAll('#raceArea input[type="checkbox"]:checked')
     ).map(cb => cb.value);
+    
     if (races.length === 0) {
       alert('レースを1つ以上選択してください');
       return;
     }
 
     document.getElementById('resultArea').innerHTML = '';
-    showLoading('CNAME取得中...');
+    showLoading('CNAMEを取得中...');
     setStatus('');
     document.getElementById('fetchBtn').disabled = true;
 
-    try {
-      // 日本語パラメータを確実にエンコードして渡す
-      const params = new URLSearchParams();
-      params.set('action', 'getCnames');
-      params.set('dateLabel', selectedDate);
-      params.set('course', selectedCourse);
-      params.set('races', JSON.stringify(races));
-
-      const res = await fetch(GAS_URL + '?' + params.toString(), {
-        method: 'GET',
-        mode: 'cors',
-        redirect: 'follow'
-      });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error);
-      renderResults(json.data);
-    } catch (e) {
-      setStatus('エラー: ' + e.message, true);
-    } finally {
-      hideLoading();
-      document.getElementById('fetchBtn').disabled = false;
-    }
+    // google.script.run を使用してサーバー側関数を直接呼ぶ
+    google.script.run
+      .withSuccessHandler(function(results) {
+        renderResults(results);
+        hideLoading();
+        document.getElementById('fetchBtn').disabled = false;
+      })
+      .withFailureHandler(function(err) {
+        setStatus('取得エラー: ' + err.message, true);
+        hideLoading();
+        document.getElementById('fetchBtn').disabled = false;
+      })
+      .getCnamesForSelection(selectedDate, selectedCourse, races);
   }
 
   function renderResults(data) {
