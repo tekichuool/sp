@@ -271,9 +271,10 @@
 </div>
 
 <script>
+  // GASのウェブアプリURL
   const GAS_URL = 'https://script.google.com/macros/s/AKfycbwDjaemukb4WjRJfQtFA0qh70zDAj7tUv4axWMZV7xgycWPkkzurjf5dRu_smV86GW-JA/exec';
 
-let scheduleData = [];
+  let scheduleData = [];
   let currentDate = null;
 
   // 1. 起動時の処理：開催スケジュール取得
@@ -300,8 +301,57 @@ let scheduleData = [];
     }
   };
 
+  // 2. CNAME取得ボタンクリック時
+  async function onFetchClick() {
+    const selectedDate = document.getElementById('dateSelect').value;
+    const courseRadio = document.querySelector('input[name="course"]:checked');
+    const selectedCourse = courseRadio ? courseRadio.value : null;
+    
+    if (!selectedDate || !selectedCourse) {
+      alert('開催日と開催場を選択してください');
+      return;
+    }
+    
+    const races = Array.from(
+      document.querySelectorAll('#raceArea input[type="checkbox"]:checked')
+    ).map(cb => cb.value);
+    
+    if (races.length === 0) {
+      alert('レースを1つ以上選択してください');
+      return;
+    }
+
+    document.getElementById('resultArea').innerHTML = '';
+    showLoading('CNAMEを取得中...');
+    setStatus('');
+    document.getElementById('fetchBtn').disabled = true;
+
+    try {
+      // API形式で呼び出し（URLパラメータ構築）
+      const url = GAS_URL 
+        + '?action=getCnames'
+        + '&dateLabel=' + encodeURIComponent(selectedDate)
+        + '&course='    + encodeURIComponent(selectedCourse)
+        + '&races='     + encodeURIComponent(JSON.stringify(races));
+
+      const res = await fetch(url);
+      const json = await res.json();
+      
+      if (!json.ok) throw new Error(json.error);
+      renderResults(json.data);
+    } catch (e) {
+      console.error('Fetch Error:', e);
+      setStatus('取得エラー: ' + e.message, true);
+    } finally {
+      hideLoading();
+      document.getElementById('fetchBtn').disabled = false;
+    }
+  }
+
+  // --- イベントリスナーの登録 ---
   document.getElementById('fetchBtn').addEventListener('click', onFetchClick);
 
+  // --- UI制御用関数群 ---
   function populateDateSelect() {
     const sel = document.getElementById('dateSelect');
     sel.innerHTML = '';
@@ -374,54 +424,6 @@ let scheduleData = [];
     document.querySelectorAll('#raceArea input[type="checkbox"]').forEach(cb => cb.checked = false);
   }
 
-  // 2. CNAME取得ボタンクリック時 (GitHub対応版)
-  async function onFetchClick() {
-    const selectedDate = document.getElementById('dateSelect').value;
-    const courseRadio = document.querySelector('input[name="course"]:checked');
-    const selectedCourse = courseRadio ? courseRadio.value : null;
-    
-    if (!selectedDate || !selectedCourse) {
-      alert('開催日と開催場を選択してください');
-      return;
-    }
-    
-    const races = Array.from(
-      document.querySelectorAll('#raceArea input[type="checkbox"]:checked')
-    ).map(cb => cb.value);
-    
-    if (races.length === 0) {
-      alert('レースを1つ以上選択してください');
-      return;
-    }
-
-    document.getElementById('resultArea').innerHTML = '';
-    showLoading('CNAMEを取得中...');
-    setStatus('');
-    document.getElementById('fetchBtn').disabled = true;
-
-    try {
-      // API形式で呼び出し
-      const url = GAS_URL 
-        + '?action=getCnames'
-        + '&dateLabel=' + encodeURIComponent(selectedDate)
-        + '&course='    + encodeURIComponent(selectedCourse)
-        + '&races='     + encodeURIComponent(JSON.stringify(races));
-
-      const res = await fetch(url);
-      const json = await res.json();
-      
-      if (!json.ok) throw new Error(json.error);
-      renderResults(json.data);
-    } catch (e) {
-      setStatus('取得エラー: ' + e.message, true);
-    } finally {
-      hideLoading();
-      document.getElementById('fetchBtn').disabled = false;
-    }
-  }
-      .getCnamesForSelection(selectedDate, selectedCourse, races);
-  }
-
   function renderResults(data) {
     const area = document.getElementById('resultArea');
     area.innerHTML = '';
@@ -477,7 +479,6 @@ let scheduleData = [];
         });
         body.appendChild(copyBtn);
       }
-
       card.appendChild(body);
       area.appendChild(card);
     });
