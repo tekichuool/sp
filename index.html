@@ -298,6 +298,7 @@ td {
         <label><input type="checkbox" class="cond" value="ninki2_3" checked> 2人気3番目</label>
         <label><input type="checkbox" class="cond" value="ninki2_4" checked> 2人気4番目</label>
         <label><input type="checkbox" class="cond" value="ninki2_5" checked> 2人気5番目</label>
+        <label><input type="checkbox" class="cond" value="ninki2_6" checked> 2人気6番目</label>
     </div>
 </div>
 
@@ -1018,6 +1019,11 @@ function renderWakurenTable(targetId, result) {
         if (html) resultHtml += `<div><strong>【2人気5番目】</strong><br>${html}</div><br>`;
     }
 
+    if (conds.ninki2_6) {
+        const html = extractNinki2_6Buy(wakurenResult, umatan, tanfuku);
+        if (html) resultHtml += `<div><strong>【2人気6番目】</strong><br>${html}</div><br>`;
+    }
+
     // ▼ 結果を反映
     document.getElementById("buyResult").innerHTML = resultHtml;
 
@@ -1036,93 +1042,177 @@ function renderWakurenTable(targetId, result) {
 }
 
     // ================================
-    // --- 枠連人気ごとの買い目抽出関数 ---
+    // --- 全レース共通フィルタ関数 ---
     // ================================
-    // ============================================
-    // ★ 枠連1・2・3人気の買い目抽出
-    // ============================================
+
+function isCommonExcluded(pair, odds, winRank) {
+    const [a, b] = pair.split("-").map(Number);
+
+    // ① 単勝人気が両方 10 以上 → 除外
+    if (winRank[a] >= 10 && winRank[b] >= 10) return true;
+
+    // ② 馬単オッズが 1000倍以上 → 除外
+    if (odds >= 1000) return true;
+
+    return false;
+}
+
+function isRaceOmitted(wakuren) {
+    const pair1 = wakuren[0].pair;
+    const pair2 = wakuren[1].pair;
+
+    const isZorome = p => {
+        const [a, b] = p.split("-");
+        return a === b;
+    };
+
+    return isZorome(pair1) || isZorome(pair2);
+}
+
+// ============================================
+// ★ 枠連1〜3人気の買い目抽出（新仕様）
+// ============================================
+
+// 人気ごとの条件を外部化（メンテしやすい）
+const WAKU_NINKI_CONFIG = {
+    1: { minOdds: 3.0,  maxOdds: 7.8,  minUmatan: 15.0, maxWinRank: 10 },
+    2: { minOdds: 4.0,  maxOdds: 10.0, minUmatan: 16.0, maxWinRank: 12 },
+    3: { minOdds: 6.0,  maxOdds: 11.5, minUmatan: 16.0, maxWinRank: 13 }
+};
+
 function extractWakuNinkiBuy(n, wakuren, umatan, tanfuku) {
+
+    const cfg = WAKU_NINKI_CONFIG[n];
+    if (!cfg) return "";
 
     // n人気の枠連データ
     const wr = wakuren[n - 1];
-    const pair = wr.pair;        
-    const odds = Number(wr.odds); 
+    const pair = wr.pair;
+    const odds = Number(wr.odds);
 
-    // -------------------------------
-    // 人気ごとの条件設定
-    // -------------------------------
-    let minOdds = 0;
-    let maxOdds = 999;
-    let minUmatan = 0;
-    let maxWinRank = 999;
-
-    if (n === 1) {
-        // ★ 枠連1人気の条件
-        minOdds = 3.0;
-        maxOdds = 7.1;
-        minUmatan = 15.0;
-        maxWinRank = 10;
-    }
-
-    if (n === 2) {
-        // ★ 枠連2人気の条件
-        minOdds = 4.0;
-        maxOdds = 12.0;
-        minUmatan = 16.0;
-        maxWinRank = 11;
-    }
-
-    if (n === 3) {
-    // ★ 枠連3人気の条件
-    minOdds = 6.0;
-    maxOdds = 11.5;
-    minUmatan = 16.0;
-    maxWinRank = 12;
-    }
-
-    // ① 枠連オッズが範囲外なら抽出しない
-    if (odds < minOdds || odds > maxOdds) {
+    // ① 枠連オッズ範囲チェック
+    if (odds < cfg.minOdds || odds > cfg.maxOdds) {
         return "";
     }
 
-    const [w1, w2] = pair.split("-").map(Number);
-
     // 枠 → 馬番リスト
+    const [w1, w2] = pair.split("-").map(Number);
     const list1 = tanfuku.filter(h => Number(h.waku) === w1).map(h => h.num);
     const list2 = tanfuku.filter(h => Number(h.waku) === w2).map(h => h.num);
 
     // 馬番の全組み合わせ
     const combos = [];
-    list1.forEach(a => {
-        list2.forEach(b => {
-            combos.push(`${a}-${b}`);
-            combos.push(`${b}-${a}`);
-        });
-    });
+    list1.forEach(a => list2.forEach(b => {
+        combos.push(`${a}-${b}`);
+        combos.push(`${b}-${a}`);
+    }));
 
-    // 単勝人気（rank）を参照
+    // 単勝人気（rank）
     const winRank = {};
-    tanfuku.forEach(h => {
-        winRank[h.num] = Number(h.rank);
-    });
+    tanfuku.forEach(h => winRank[h.num] = Number(h.rank));
 
-    // 馬単オッズから該当するものを抽出
+    // ② 馬単フィルタ
     const hits = umatan.filter(u => {
 
         if (!combos.includes(u.pair)) return false;
 
-        // ② 馬単オッズが指定以上
-        if (Number(u.odds) < minUmatan) return false;
+        const uOdds = Number(u.odds);
 
-        // ③ 単勝人気が maxWinRank 以内
+        // ★ 全レース共通除外条件
+        if (isCommonExcluded(u.pair, uOdds, winRank)) return false;
+
+        // ③ 馬単オッズが指定以上
+        if (uOdds < cfg.minUmatan) return false;
+
+        // ④ 単勝人気が指定以内
         const [a, b] = u.pair.split("-").map(Number);
-        if (winRank[a] > maxWinRank || winRank[b] > maxWinRank) return false;
+        if (winRank[a] > cfg.maxWinRank || winRank[b] > cfg.maxWinRank) return false;
 
         return true;
     });
 
     if (hits.length === 0) return "";
 
+    // ハイライト登録
+    window._highlightPairs = window._highlightPairs || [];
+    window._highlightPairs.push(pair);
+
+    return hits.map(h => `${h.pair} (${h.odds})`).join(" ");
+}
+
+// ============================================
+// ★ 縦2番目の買い目抽出（新仕様）
+// ============================================
+
+// 設定を外部化（メンテしやすい）
+const TATE2_CONFIG = {
+    oddsRange: {
+        4: [8.0, 11.5],
+        5: [9.0, 15.5],
+        6: [12.0, 16.5]
+    },
+    umatanMinOdds: 20.0,
+    maxWinRank: 12
+};
+
+function extractTate2Buy(wakurenResult, umatan, tanfuku) {
+
+    // 1) 縦2番目の行を取得
+    const row = wakurenResult.list.find(d => d.logicText.includes("縦2"));
+    if (!row) return "";
+
+    const ninki = Number(row.rank);   // 枠連人気
+    const odds  = Number(row.odds);   // 枠連オッズ
+    const pair  = row.pair;
+
+    // 2) 対象人気は 4・5・6 のみ
+    const range = TATE2_CONFIG.oddsRange[ninki];
+    if (!range) return "";
+
+    const [minOdds, maxOdds] = range;
+
+    // 3) 枠連オッズ範囲チェック
+    if (odds < minOdds || odds > maxOdds) return "";
+
+    // 4) 枠 → 馬番展開
+    const [w1, w2] = pair.split("-").map(Number);
+    const list1 = tanfuku.filter(h => Number(h.waku) === w1).map(h => h.num);
+    const list2 = tanfuku.filter(h => Number(h.waku) === w2).map(h => h.num);
+
+    const combos = [];
+    list1.forEach(a => list2.forEach(b => {
+        combos.push(`${a}-${b}`);
+        combos.push(`${b}-${a}`);
+    }));
+
+    // 単勝人気
+    const winRank = {};
+    tanfuku.forEach(h => winRank[h.num] = Number(h.rank));
+
+    // 5) 馬単フィルタ
+    const hits = umatan.filter(u => {
+
+        if (!combos.includes(u.pair)) return false;
+
+        const uOdds = Number(u.odds);
+
+        // ★ 全レース共通除外条件
+        if (isCommonExcluded(u.pair, uOdds, winRank)) return false;
+
+        // 馬単20倍以上
+        if (uOdds < TATE2_CONFIG.umatanMinOdds) return false;
+
+        // 単勝12人気以内同士
+        const [a, b] = u.pair.split("-").map(Number);
+        if (winRank[a] > TATE2_CONFIG.maxWinRank ||
+            winRank[b] > TATE2_CONFIG.maxWinRank) return false;
+
+        return true;
+    });
+
+    if (hits.length === 0) return "";
+
+    // ハイライト
     window._highlightPairs = window._highlightPairs || [];
     window._highlightPairs.push(pair);
 
@@ -1130,97 +1220,36 @@ function extractWakuNinkiBuy(n, wakuren, umatan, tanfuku) {
 }
 
     // ============================================
-    // ★ 縦2番目の買い目抽出
+    // ★ 縦・裏3番目の買い目抽出
     // ============================================
 
-    function extractTate2Buy(wakurenResult, umatan, tanfuku) {
-    // wakurenResult = analyzeWakurenLogic(dataW) の戻り値
+const TATEURA3_CONFIG = {
+    tate: {
+        oddsRange: {
+            4: [9.0, 13.0],
+            5: [10.0, 25.0],
+            6: [10.0, 17.0],
+            7: [12.0, 20.5],
+            8: [15.0, 19.5],
+            9: [20.0, 26.0]
+        }
+    },
+    ura: {
+        oddsRange: {
+            4: [7.0, 16.5],
+            5: [10.5, 15.5],
+            6: [12.5, 15.0]
+        }
+    },
+    umatanMinOdds: 25.0,
+    maxWinRank: 11
+};
 
-    // 1) 縦2番目に該当する枠連行を探す
-    const tate2Row = wakurenResult.list.find(d => d.logicText.includes('縦2'));
-    if (!tate2Row) return "";
+function extractTateUra3Buy(wakurenResult, umatan, tanfuku) {
 
-    const ninki = Number(tate2Row.rank);   // 何人気か
-    const odds  = Number(tate2Row.odds);   // 枠連オッズ
-    const pair  = tate2Row.pair;           // "6-9" など
-
-    // 2) 4〜6人気以外は除外
-    if (ninki < 4 || ninki > 6) {
-        return "";
-    }
-
-    // 3) 人気ごとの枠連オッズ範囲
-    let minOdds = 0;
-    let maxOdds = 0;
-
-    if (ninki === 4) {
-        minOdds = 8.0;
-        maxOdds = 11.5;
-    } else if (ninki === 5) {
-        minOdds = 9.1;
-        maxOdds = 15.5;
-    } else if (ninki === 6) {
-        minOdds = 12.1;
-        maxOdds = 16.5;
-    }
-
-    // 枠連オッズが範囲外なら抽出しない
-    if (odds < minOdds || odds > maxOdds) {
-        return "";
-    }
-
-    // 4) ここから先は馬単抽出ロジック（20倍以上＋単勝12人気以内）
-
-    const [w1, w2] = pair.split("-").map(Number);
-
-    const list1 = tanfuku.filter(h => Number(h.waku) === w1).map(h => h.num);
-    const list2 = tanfuku.filter(h => Number(h.waku) === w2).map(h => h.num);
-
-    const combos = [];
-    list1.forEach(a => {
-        list2.forEach(b => {
-            combos.push(`${a}-${b}`);
-            combos.push(`${b}-${a}`);
-        });
-    });
-
-    const winRank = {};
-    tanfuku.forEach(h => {
-        winRank[h.num] = Number(h.rank);
-    });
-
-    const hits = umatan.filter(u => {
-        if (!combos.includes(u.pair)) return false;
-
-        // 馬単20倍以上
-        if (Number(u.odds) < 20.0) return false;
-
-        // 単勝12人気以内同士
-        const [a, b] = u.pair.split("-").map(Number);
-        if (winRank[a] > 12 || winRank[b] > 12) return false;
-
-        return true;
-    });
-
-    if (hits.length === 0) return "";
-
-    window._highlightPairs = window._highlightPairs || [];
-    window._highlightPairs.push(pair);
-
-    return hits.map(h => `${h.pair} (${h.odds})`).join(" ");
-    }
-
-// ============================================
-// ★ 縦裏3～7までのロジック共通関数
-// ============================================
-function extractTateUraBuyCommon(wakurenResult, umatan, tanfuku, logicNo, config) {
-
-    // 1) 縦N・裏N の両方を抽出
     const rows = wakurenResult.list.filter(d =>
-        d.logicText.includes(`縦${logicNo}`) ||
-        d.logicText.includes(`裏${logicNo}`)
+        d.logicText.includes("縦3") || d.logicText.includes("裏3")
     );
-
     if (rows.length === 0) return "";
 
     let allHits = [];
@@ -1231,16 +1260,25 @@ function extractTateUraBuyCommon(wakurenResult, umatan, tanfuku, logicNo, config
         const odds  = Number(row.odds);
         const pair  = row.pair;
 
-        // 2) 人気ごとの枠連オッズ範囲
-        const range = config.oddsRange[ninki];
+        let range;
+
+        // ★ 縦3か裏3かで条件を切り替える
+        if (row.logicText.includes("縦3")) {
+            range = TATEURA3_CONFIG.tate.oddsRange[ninki];
+        } else {
+            range = TATEURA3_CONFIG.ura.oddsRange[ninki];
+        }
+
+        // 対象人気でなければ除外
         if (!range) return;
 
         const [minOdds, maxOdds] = range;
+
+        // 枠連オッズ範囲チェック
         if (odds < minOdds || odds > maxOdds) return;
 
-        // 3) 枠 → 馬番リスト
+        // 枠 → 馬番展開
         const [w1, w2] = pair.split("-").map(Number);
-
         const list1 = tanfuku.filter(h => Number(h.waku) === w1).map(h => h.num);
         const list2 = tanfuku.filter(h => Number(h.waku) === w2).map(h => h.num);
 
@@ -1254,16 +1292,23 @@ function extractTateUraBuyCommon(wakurenResult, umatan, tanfuku, logicNo, config
         const winRank = {};
         tanfuku.forEach(h => winRank[h.num] = Number(h.rank));
 
-        // 4) 馬単オッズ条件 ＋ 単勝人気条件
+        // 馬単フィルタ
         const hits = umatan.filter(u => {
 
             if (!combos.includes(u.pair)) return false;
 
-            if (Number(u.odds) < config.umatanMinOdds) return false;
+            const uOdds = Number(u.odds);
 
+            // ★ 全レース共通除外条件
+            if (isCommonExcluded(u.pair, uOdds, winRank)) return false;
+
+            // 馬単25倍以上
+            if (uOdds < TATEURA3_CONFIG.umatanMinOdds) return false;
+
+            // 単勝11人気以内
             const [a, b] = u.pair.split("-").map(Number);
-            if (winRank[a] > config.maxWinRank ||
-                winRank[b] > config.maxWinRank) return false;
+            if (winRank[a] > TATEURA3_CONFIG.maxWinRank ||
+                winRank[b] > TATEURA3_CONFIG.maxWinRank) return false;
 
             return true;
         });
@@ -1280,193 +1325,534 @@ function extractTateUraBuyCommon(wakurenResult, umatan, tanfuku, logicNo, config
 }
 
     // ============================================
-    // ★ 縦・裏3番目の買い目抽出
-    // ============================================
-    function extractTateUra3Buy(w, u, t) {
-    return extractTateUraBuyCommon(w, u, t, 3, {
-        oddsRange: {
-            4: [8.0, 16.5],
-            5: [10.1, 24.5],
-            6: [11.1, 17.5],
-            7: [12.1, 20.5],
-        },
-        umatanMinOdds: 25.0,
-        maxWinRank: 11
-    });
-}
-
-    // ============================================
     // ★ 縦・裏4番目の買い目抽出
     // ============================================
-    function extractTateUra4Buy(w, u, t) {
-    return extractTateUraBuyCommon(w, u, t, 4, {
+const TATEURA4_CONFIG = {
+    tate: {
         oddsRange: {
-            4: [7.0, 14.0],
-            5: [10.0, 18.0],
-            6: [12.0, 19.5],
-            7: [15.0, 20.5],
-            8: [14.0, 23.5],
-            9: [18.0, 30.5],
-            10: [21.0, 33.5],
-            11: [21.0, 33.5],
-            12: [21.0, 33.5],
-        },
-        umatanMinOdds: 20.0,
-        maxWinRank: 12
+            6: [11.5, 17.5],
+            7: [13.0, 19.0],
+            8: [13.0, 23.5],
+            9: [18.0, 29.5],
+            10: [23.0, 33.5],
+            11: [21.0, 24.0],
+            12: [20.0, 23.0]
+        }
+    },
+    ura: {
+        oddsRange: {
+            4: [7.0, 14.5],
+            5: [10.0, 18.5],
+            6: [11.0, 20.0],
+            7: [18.5, 21.5],
+            8: [12.5, 15.0],
+            9: [18.5, 32.0],
+            10: [16.0, 19.5]
+        }
+    },
+    umatanMinOdds: 20.0,
+    maxWinRank: 14
+};
+
+function extractTateUra4Buy(wakurenResult, umatan, tanfuku) {
+
+    const rows = wakurenResult.list.filter(d =>
+        d.logicText.includes("縦4") || d.logicText.includes("裏4")
+    );
+    if (rows.length === 0) return "";
+
+    let allHits = [];
+
+    rows.forEach(row => {
+
+        const ninki = Number(row.rank);
+        const odds  = Number(row.odds);
+        const pair  = row.pair;
+
+        let range;
+
+        // ★ 縦4か裏4かで条件を切り替える
+        if (row.logicText.includes("縦4")) {
+            range = TATEURA4_CONFIG.tate.oddsRange[ninki];
+        } else {
+            range = TATEURA4_CONFIG.ura.oddsRange[ninki];
+        }
+
+        // 対象人気でなければ除外
+        if (!range) return;
+
+        const [minOdds, maxOdds] = range;
+
+        // 枠連オッズ範囲チェック
+        if (odds < minOdds || odds > maxOdds) return;
+
+        // 枠 → 馬番展開
+        const [w1, w2] = pair.split("-").map(Number);
+        const list1 = tanfuku.filter(h => Number(h.waku) === w1).map(h => h.num);
+        const list2 = tanfuku.filter(h => Number(h.waku) === w2).map(h => h.num);
+
+        const combos = [];
+        list1.forEach(a => list2.forEach(b => {
+            combos.push(`${a}-${b}`);
+            combos.push(`${b}-${a}`);
+        }));
+
+        // 単勝人気
+        const winRank = {};
+        tanfuku.forEach(h => winRank[h.num] = Number(h.rank));
+
+        // 馬単フィルタ
+        const hits = umatan.filter(u => {
+
+            if (!combos.includes(u.pair)) return false;
+
+            const uOdds = Number(u.odds);
+
+            // ★ 全レース共通除外条件
+            if (isCommonExcluded(u.pair, uOdds, winRank)) return false;
+
+            // 馬単20倍以上
+            if (uOdds < TATEURA4_CONFIG.umatanMinOdds) return false;
+
+            // 単勝14人気以内
+            const [a, b] = u.pair.split("-").map(Number);
+            if (winRank[a] > TATEURA4_CONFIG.maxWinRank ||
+                winRank[b] > TATEURA4_CONFIG.maxWinRank) return false;
+
+            return true;
+        });
+
+        if (hits.length > 0) {
+            window._highlightPairs.push(pair);
+            allHits.push(...hits);
+        }
     });
+
+    if (allHits.length === 0) return "";
+
+    return allHits.map(h => `${h.pair} (${h.odds})`).join(" ");
 }
 
     // ============================================
     // ★ 縦・裏5番目の買い目抽出
     // ============================================
-    function extractTateUra5Buy(w, u, t) {
-    return extractTateUraBuyCommon(w, u, t, 5, {
+const TATEURA5_CONFIG = {
+    tate: {
         oddsRange: {
-            5: [8.5, 15.0],
-            6: [12.5, 16.5],
-            7: [13.5, 18.5],
-            8: [23.0, 30.0],
-            9: [18.0, 23.0],
-            10: [16.0, 29.5],
-            11: [17.5, 31.5],
-            12: [18.0, 41.0],
-            13: [20.5, 50.5],
-            14: [22.5, 40.5],
-            16: [40.0, 58.0],
-            17: [40.0, 58.0],
-            18: [40.0, 58.0],
-            19: [40.0, 58.0],
-            20: [40.0, 58.0],
-            21: [40.0, 58.0],
-        },
-        umatanMinOdds: 21.0,
-        maxWinRank: 16
+            9:  [16.0, 23.0],
+            10: [17.0, 28.5],
+            11: [17.5, 31.0],
+            12: [18.0, 26.0],
+            13: [21.0, 50.0],
+            14: [22.0, 40.0],
+            16: [40.0, 43.0],
+            21: [55.0, 58.0]
+        }
+    },
+    ura: {
+        oddsRange: {
+            5:  [8.0, 16.0],
+            6:  [12.0, 17.0],
+            7:  [13.0, 19.0],
+            8:  [22.0, 29.5],
+            9:  [18.0, 22.5],
+            10: [16.0, 27.0],
+            11: [20.0, 23.5],
+            12: [37.0, 40.5],
+            13: [32.0, 36.5],
+            14: [31.0, 35.5]
+        }
+    },
+    umatanMinOdds: 30.0,
+    maxWinRank: 16
+};
+
+function extractTateUra5Buy(wakurenResult, umatan, tanfuku) {
+
+    const rows = wakurenResult.list.filter(d =>
+        d.logicText.includes("縦5") || d.logicText.includes("裏5")
+    );
+    if (rows.length === 0) return "";
+
+    let allHits = [];
+
+    rows.forEach(row => {
+
+        const ninki = Number(row.rank);
+        const odds  = Number(row.odds);
+        const pair  = row.pair;
+
+        let range;
+
+        // ★ 縦5か裏5かで条件を切り替える
+        if (row.logicText.includes("縦5")) {
+            range = TATEURA5_CONFIG.tate.oddsRange[ninki];
+        } else {
+            range = TATEURA5_CONFIG.ura.oddsRange[ninki];
+        }
+
+        // 対象人気でなければ除外
+        if (!range) return;
+
+        const [minOdds, maxOdds] = range;
+
+        // 枠連オッズ範囲チェック
+        if (odds < minOdds || odds > maxOdds) return;
+
+        // 枠 → 馬番展開
+        const [w1, w2] = pair.split("-").map(Number);
+        const list1 = tanfuku.filter(h => Number(h.waku) === w1).map(h => h.num);
+        const list2 = tanfuku.filter(h => Number(h.waku) === w2).map(h => h.num);
+
+        const combos = [];
+        list1.forEach(a => list2.forEach(b => {
+            combos.push(`${a}-${b}`);
+            combos.push(`${b}-${a}`);
+        }));
+
+        // 単勝人気
+        const winRank = {};
+        tanfuku.forEach(h => winRank[h.num] = Number(h.rank));
+
+        // 馬単フィルタ
+        const hits = umatan.filter(u => {
+
+            if (!combos.includes(u.pair)) return false;
+
+            const uOdds = Number(u.odds);
+
+            // ★ 全レース共通除外条件
+            if (isCommonExcluded(u.pair, uOdds, winRank)) return false;
+
+            // 馬単30倍以上
+            if (uOdds < TATEURA5_CONFIG.umatanMinOdds) return false;
+
+            // 単勝16人気以内
+            const [a, b] = u.pair.split("-").map(Number);
+            if (winRank[a] > TATEURA5_CONFIG.maxWinRank ||
+                winRank[b] > TATEURA5_CONFIG.maxWinRank) return false;
+
+            return true;
+        });
+
+        if (hits.length > 0) {
+            window._highlightPairs.push(pair);
+            allHits.push(...hits);
+        }
     });
+
+    if (allHits.length === 0) return "";
+
+    return allHits.map(h => `${h.pair} (${h.odds})`).join(" ");
 }
+
     // ============================================
     // ★ 縦・裏6番目の買い目抽出
     // ============================================
-    function extractTateUra6Buy(w, u, t) {
-    return extractTateUraBuyCommon(w, u, t, 6, {
+const TATEURA6_CONFIG = {
+    tate: {
         oddsRange: {
-            6: [10.5, 16.5],
-            7: [13.5, 22.0],
-            8: [19.0, 25.0],
-            9: [17.5, 23.5],
-            10: [21.0, 23.5],
-            11: [21.0, 23.5],
-            12: [23.0, 55.0],
-            13: [30.0, 65.0],
-            14: [30.0, 65.0],
-            15: [30.0, 65.0],
-            16: [30.0, 65.0],
-            17: [30.0, 65.0],
-            18: [30.0, 65.0],
-            19: [30.0, 65.0],
-            20: [30.0, 65.0],
-            21: [30.0, 65.0],
-            22: [30.0, 65.0],
-            23: [30.0, 65.0],
-        },
-        umatanMinOdds: 25.0,
-        maxWinRank: 14
+            9:  [20.5, 24.5],
+            11: [19.5, 23.5],
+            12: [25.0, 55.0],
+            13: [26.0, 30.5],
+            14: [28.0, 42.5],
+            16: [50.0, 65.5],
+            17: [52.5, 57.5],
+            19: [53.0, 60.0],
+            23: [54.0, 61.0]
+        }
+    },
+    ura: {
+        oddsRange: {
+            6:  [10.0, 16.5],
+            7:  [12.5, 22.0],
+            8:  [18.5, 25.5],
+            9:  [17.0, 27.5],
+            10: [20.0, 25.5],
+            12: [23.0, 37.5],
+            13: [29.0, 33.5],
+            15: [42.0, 48.0]
+        }
+    },
+    umatanMinOdds: 40.0,
+    maxWinRank: 14
+};
+
+function extractTateUra6Buy(wakurenResult, umatan, tanfuku) {
+
+    const rows = wakurenResult.list.filter(d =>
+        d.logicText.includes("縦6") || d.logicText.includes("裏6")
+    );
+    if (rows.length === 0) return "";
+
+    let allHits = [];
+
+    rows.forEach(row => {
+
+        const ninki = Number(row.rank);
+        const odds  = Number(row.odds);
+        const pair  = row.pair;
+
+        let range;
+
+        // ★ 縦6か裏6かで条件を切り替える
+        if (row.logicText.includes("縦6")) {
+            range = TATEURA6_CONFIG.tate.oddsRange[ninki];
+        } else {
+            range = TATEURA6_CONFIG.ura.oddsRange[ninki];
+        }
+
+        // 対象人気でなければ除外
+        if (!range) return;
+
+        const [minOdds, maxOdds] = range;
+
+        // 枠連オッズ範囲チェック
+        if (odds < minOdds || odds > maxOdds) return;
+
+        // 枠 → 馬番展開
+        const [w1, w2] = pair.split("-").map(Number);
+        const list1 = tanfuku.filter(h => Number(h.waku) === w1).map(h => h.num);
+        const list2 = tanfuku.filter(h => Number(h.waku) === w2).map(h => h.num);
+
+        const combos = [];
+        list1.forEach(a => list2.forEach(b => {
+            combos.push(`${a}-${b}`);
+            combos.push(`${b}-${a}`);
+        }));
+
+        // 単勝人気
+        const winRank = {};
+        tanfuku.forEach(h => winRank[h.num] = Number(h.rank));
+
+        // 馬単フィルタ
+        const hits = umatan.filter(u => {
+
+            if (!combos.includes(u.pair)) return false;
+
+            const uOdds = Number(u.odds);
+
+            // ★ 全レース共通除外条件
+            if (isCommonExcluded(u.pair, uOdds, winRank)) return false;
+
+            // 馬単40倍以上
+            if (uOdds < TATEURA6_CONFIG.umatanMinOdds) return false;
+
+            // 単勝14人気以内
+            const [a, b] = u.pair.split("-").map(Number);
+            if (winRank[a] > TATEURA6_CONFIG.maxWinRank ||
+                winRank[b] > TATEURA6_CONFIG.maxWinRank) return false;
+
+            return true;
+        });
+
+        if (hits.length > 0) {
+            window._highlightPairs.push(pair);
+            allHits.push(...hits);
+        }
     });
+
+    if (allHits.length === 0) return "";
+
+    return allHits.map(h => `${h.pair} (${h.odds})`).join(" ");
 }
 
     // ============================================
     // ★ 縦・裏7番目の買い目抽出
     // ============================================
-    function extractTateUra7Buy(w, u, t) {
-    return extractTateUraBuyCommon(w, u, t, 7, {
+const TATEURA7_CONFIG = {
+    tate: {
         oddsRange: {
-            7: [14.0, 18.5],
-            8: [20.0, 29.5],
-            9: [20.0, 29.5],
-            10: [21.0, 35.0],
-            11: [23.0, 35.0],
-            13: [21.5, 34.0],
-            14: [35.5, 43.0],
-            16: [35.0, 52.0],
-            17: [36.5, 62.0],
-            18: [31.0, 38.0],
-            19: [49.5, 57.0],
-            20: [42.0, 66.0],
-            21: [42.0, 66.0],
-            22: [42.0, 66.0],
-            23: [42.0, 66.0],
-            24: [42.0, 66.0],
-        },
-        umatanMinOdds: 40.0,
-        maxWinRank: 15
+            13: [21.0, 25.5],
+            14: [35.0, 43.5],
+            16: [35.0, 38.5],
+            18: [31.5, 62.5],
+            19: [48.5, 55.5],
+            20: [53.0, 66.0],
+            26: [145.0, 160.0]
+        }
+    },
+    ura: {
+        oddsRange: {
+            7:  [14.0, 19.5],
+            8:  [26.0, 30.0],
+            9:  [20.0, 23.5],
+            10: [20.0, 35.5],
+            11: [23.5, 35.0],
+            13: [30.0, 35.5],
+            15: [32.5, 60.5],
+            16: [48.5, 53.5],
+            17: [36.0, 63.5],
+            19: [52.5, 58.0],
+            24: [42.0, 47.5]
+        }
+    },
+    umatanMinOdds: 40.0,
+    maxWinRank: 15
+};
+
+function extractTateUra7Buy(wakurenResult, umatan, tanfuku) {
+
+    const rows = wakurenResult.list.filter(d =>
+        d.logicText.includes("縦7") || d.logicText.includes("裏7")
+    );
+    if (rows.length === 0) return "";
+
+    let allHits = [];
+
+    rows.forEach(row => {
+
+        const ninki = Number(row.rank);
+        const odds  = Number(row.odds);
+        const pair  = row.pair;
+
+        let range;
+
+        // ★ 縦7か裏7かで条件を切り替える
+        if (row.logicText.includes("縦7")) {
+            range = TATEURA7_CONFIG.tate.oddsRange[ninki];
+        } else {
+            range = TATEURA7_CONFIG.ura.oddsRange[ninki];
+        }
+
+        // 対象人気でなければ除外
+        if (!range) return;
+
+        const [minOdds, maxOdds] = range;
+
+        // 枠連オッズ範囲チェック
+        if (odds < minOdds || odds > maxOdds) return;
+
+        // 枠 → 馬番展開
+        const [w1, w2] = pair.split("-").map(Number);
+        const list1 = tanfuku.filter(h => Number(h.waku) === w1).map(h => h.num);
+        const list2 = tanfuku.filter(h => Number(h.waku) === w2).map(h => h.num);
+
+        const combos = [];
+        list1.forEach(a => list2.forEach(b => {
+            combos.push(`${a}-${b}`);
+            combos.push(`${b}-${a}`);
+        }));
+
+        // 単勝人気
+        const winRank = {};
+        tanfuku.forEach(h => winRank[h.num] = Number(h.rank));
+
+        // 馬単フィルタ
+        const hits = umatan.filter(u => {
+
+            if (!combos.includes(u.pair)) return false;
+
+            const uOdds = Number(u.odds);
+
+            // ★ 全レース共通除外条件
+            if (isCommonExcluded(u.pair, uOdds, winRank)) return false;
+
+            // 馬単40倍以上
+            if (uOdds < TATEURA7_CONFIG.umatanMinOdds) return false;
+
+            // 単勝15人気以内
+            const [a, b] = u.pair.split("-").map(Number);
+            if (winRank[a] > TATEURA7_CONFIG.maxWinRank ||
+                winRank[b] > TATEURA7_CONFIG.maxWinRank) return false;
+
+            return true;
+        });
+
+        if (hits.length > 0) {
+            window._highlightPairs.push(pair);
+            allHits.push(...hits);
+        }
     });
+
+    if (allHits.length === 0) return "";
+
+    return allHits.map(h => `${h.pair} (${h.odds})`).join(" ");
 }
 
     // ============================================
     // ★ 2人気3番目の買い目抽出
     // ============================================
-    function extractNinki2_3Buy(wakurenResult, umatan, tanfuku) {
+const NINKI2_3_CONFIG = {
+    oddsRange: {
+        4:  [10.0, 12.5],
+        5:  [13.0, 16.0],
+        8:  [14.0, 24.0],
+        9:  [20.0, 35.5],
+        10: [22.0, 26.5],
+        11: [20.0, 25.0]
+    },
+    umatanMinOdds: 40.0,
+    maxWinRank: 10,
+    excludeWinRank1: true
+};
+
+function extractNinki2_3Buy(wakurenResult, umatan, tanfuku) {
 
     // 1) 「2人気3番目」ラベルを持つ行を探す
     const row = wakurenResult.list.find(d =>
-        d.logicText.includes('2人気3番目')
+        d.logicText.includes("2人気3番目")
     );
     if (!row) return "";
 
-    const ninki = Number(row.rank);  // 枠連人気
-    const odds  = Number(row.odds);  // 枠連オッズ
-    const pair  = row.pair;          // "6-9" など
+    const ninki = Number(row.rank);
+    const odds  = Number(row.odds);
+    const pair  = row.pair;
 
-    // 2) 人気8〜11のみ対象
-    if (ninki < 8 || ninki > 11) {
-        return "";
-    }
+    // 2) 人気ごとの枠連オッズ範囲
+    const range = NINKI2_3_CONFIG.oddsRange[ninki];
+    if (!range) return "";
 
-    // 3) 枠連オッズ範囲（8〜11人気共通）
-    if (odds < 14.0 || odds > 35.0) {
-        return "";
-    }
+    const [minOdds, maxOdds] = range;
 
-    // 4) 枠 → 馬番リスト
+    // 枠連オッズ範囲チェック
+    if (odds < minOdds || odds > maxOdds) return "";
+
+    // 3) 枠 → 馬番展開
     const [w1, w2] = pair.split("-").map(Number);
-
     const list1 = tanfuku.filter(h => Number(h.waku) === w1).map(h => h.num);
     const list2 = tanfuku.filter(h => Number(h.waku) === w2).map(h => h.num);
 
     const combos = [];
-    list1.forEach(a => {
-        list2.forEach(b => {
-            combos.push(`${a}-${b}`);
-            combos.push(`${b}-${a}`);
-        });
-    });
+    list1.forEach(a => list2.forEach(b => {
+        combos.push(`${a}-${b}`);
+        combos.push(`${b}-${a}`);
+    }));
 
     // 単勝人気
     const winRank = {};
-    tanfuku.forEach(h => {
-        winRank[h.num] = Number(h.rank);
-    });
+    tanfuku.forEach(h => winRank[h.num] = Number(h.rank));
 
-    // 5) 馬単40倍以上 ＋ 単勝10人気以内 ＋ 単勝1人気が絡む馬単は除外
+    // 4) 馬単フィルタ
     const hits = umatan.filter(u => {
 
         if (!combos.includes(u.pair)) return false;
 
+        const uOdds = Number(u.odds);
+
+        // ★ 全レース共通除外条件
+        if (isCommonExcluded(u.pair, uOdds, winRank)) return false;
+
         // 馬単40倍以上
-        if (Number(u.odds) < 40.0) return false;
+        if (uOdds < NINKI2_3_CONFIG.umatanMinOdds) return false;
 
         const [a, b] = u.pair.split("-").map(Number);
 
         // 単勝10人気以内
-        if (winRank[a] > 10 || winRank[b] > 10) return false;
+        if (winRank[a] > NINKI2_3_CONFIG.maxWinRank ||
+            winRank[b] > NINKI2_3_CONFIG.maxWinRank) return false;
 
         // 単勝1人気が絡む組み合わせは除外
-        if (winRank[a] === 1 || winRank[b] === 1) return false;
+        if (NINKI2_3_CONFIG.excludeWinRank1 &&
+            (winRank[a] === 1 || winRank[b] === 1)) return false;
 
         return true;
     });
 
     if (hits.length === 0) return "";
 
+    // ハイライト
     window._highlightPairs = window._highlightPairs || [];
     window._highlightPairs.push(pair);
 
@@ -1476,69 +1862,86 @@ function extractTateUraBuyCommon(wakurenResult, umatan, tanfuku, logicNo, config
     // ============================================
     // ★ 2人気4番目の買い目抽出
     // ============================================
-    function extractNinki2_4Buy(wakurenResult, umatan, tanfuku) {
+const NINKI2_4_CONFIG = {
+    oddsRange: {
+        7:  [17.0, 19.5],
+        8:  [18.0, 21.0],
+        9:  [25.0, 28.0],
+        10: [15.0, 22.5],
+        11: [22.5, 28.5],
+        12: [20.0, 29.5],
+        15: [30.0, 35.0]
+    },
+    umatanMinOdds: 50.0,
+    maxWinRank: 10,
+    excludeWinRank1: true
+};
+
+function extractNinki2_4Buy(wakurenResult, umatan, tanfuku) {
 
     // 1) 「2人気4番目」ラベルを持つ行を探す
     const row = wakurenResult.list.find(d =>
-        d.logicText.includes('2人気4番目')
+        d.logicText.includes("2人気4番目")
     );
     if (!row) return "";
 
-    const ninki = Number(row.rank);  // 枠連人気
-    const odds  = Number(row.odds);  // 枠連オッズ
-    const pair  = row.pair;          // "6-9" など
+    const ninki = Number(row.rank);
+    const odds  = Number(row.odds);
+    const pair  = row.pair;
 
-    // 2) 人気7〜15のみ対象
-    if (ninki < 7 || ninki > 15) {
-        return "";
-    }
+    // 2) 人気ごとの枠連オッズ範囲
+    const range = NINKI2_4_CONFIG.oddsRange[ninki];
+    if (!range) return "";
 
-    // 3) 枠連オッズ範囲（7〜15人気共通）
-    if (odds < 15.0 || odds > 34.0) {
-        return "";
-    }
+    const [minOdds, maxOdds] = range;
 
-    // 4) 枠 → 馬番リスト
+    // 枠連オッズ範囲チェック
+    if (odds < minOdds || odds > maxOdds) return "";
+
+    // 3) 枠 → 馬番展開
     const [w1, w2] = pair.split("-").map(Number);
-
     const list1 = tanfuku.filter(h => Number(h.waku) === w1).map(h => h.num);
     const list2 = tanfuku.filter(h => Number(h.waku) === w2).map(h => h.num);
 
     const combos = [];
-    list1.forEach(a => {
-        list2.forEach(b => {
-            combos.push(`${a}-${b}`);
-            combos.push(`${b}-${a}`);
-        });
-    });
+    list1.forEach(a => list2.forEach(b => {
+        combos.push(`${a}-${b}`);
+        combos.push(`${b}-${a}`);
+    }));
 
     // 単勝人気
     const winRank = {};
-    tanfuku.forEach(h => {
-        winRank[h.num] = Number(h.rank);
-    });
+    tanfuku.forEach(h => winRank[h.num] = Number(h.rank));
 
-    // 5) 馬単50倍以上 ＋ 単勝10人気以内 ＋ 単勝1人気が絡む馬単は除外
+    // 4) 馬単フィルタ
     const hits = umatan.filter(u => {
 
         if (!combos.includes(u.pair)) return false;
 
+        const uOdds = Number(u.odds);
+
+        // ★ 全レース共通除外条件
+        if (isCommonExcluded(u.pair, uOdds, winRank)) return false;
+
         // 馬単50倍以上
-        if (Number(u.odds) < 50.0) return false;
+        if (uOdds < NINKI2_4_CONFIG.umatanMinOdds) return false;
 
         const [a, b] = u.pair.split("-").map(Number);
 
         // 単勝10人気以内
-        if (winRank[a] > 10 || winRank[b] > 10) return false;
+        if (winRank[a] > NINKI2_4_CONFIG.maxWinRank ||
+            winRank[b] > NINKI2_4_CONFIG.maxWinRank) return false;
 
         // 単勝1人気が絡む組み合わせは除外
-        if (winRank[a] === 1 || winRank[b] === 1) return false;
+        if (NINKI2_4_CONFIG.excludeWinRank1 &&
+            (winRank[a] === 1 || winRank[b] === 1)) return false;
 
         return true;
     });
 
     if (hits.length === 0) return "";
 
+    // ハイライト
     window._highlightPairs = window._highlightPairs || [];
     window._highlightPairs.push(pair);
 
@@ -1548,69 +1951,169 @@ function extractTateUraBuyCommon(wakurenResult, umatan, tanfuku, logicNo, config
     // ============================================
     // ★ 2人気5番目の買い目抽出
     // ============================================
-    function extractNinki2_5Buy(wakurenResult, umatan, tanfuku) {
+const NINKI2_5_CONFIG = {
+    oddsRange: {
+        12: [18.5, 22.5],
+        13: [42.0, 47.5],
+        14: [18.5, 29.0],
+        15: [23.0, 48.5],
+        16: [42.0, 48.0]
+    },
+    umatanMinOdds: 50.0,
+    maxWinRank: 13,
+    excludeWinRank1: true
+};
+
+function extractNinki2_5Buy(wakurenResult, umatan, tanfuku) {
 
     // 1) 「2人気5番目」ラベルを持つ行を探す
     const row = wakurenResult.list.find(d =>
-        d.logicText.includes('2人気5番目')
+        d.logicText.includes("2人気5番目")
     );
     if (!row) return "";
 
-    const ninki = Number(row.rank);  // 枠連人気
-    const odds  = Number(row.odds);  // 枠連オッズ
-    const pair  = row.pair;          // "6-9" など
+    const ninki = Number(row.rank);
+    const odds  = Number(row.odds);
+    const pair  = row.pair;
 
-    // 2) 人気13〜16のみ対象
-    if (ninki < 13 || ninki > 16) {
-        return "";
-    }
+    // 2) 人気ごとの枠連オッズ範囲
+    const range = NINKI2_5_CONFIG.oddsRange[ninki];
+    if (!range) return "";
 
-    // 3) 枠連オッズ範囲（13〜16人気共通）
-    if (odds < 19.0 || odds > 47.0) {
-        return "";
-    }
+    const [minOdds, maxOdds] = range;
 
-    // 4) 枠 → 馬番リスト
+    // 枠連オッズ範囲チェック
+    if (odds < minOdds || odds > maxOdds) return "";
+
+    // 3) 枠 → 馬番展開
     const [w1, w2] = pair.split("-").map(Number);
-
     const list1 = tanfuku.filter(h => Number(h.waku) === w1).map(h => h.num);
     const list2 = tanfuku.filter(h => Number(h.waku) === w2).map(h => h.num);
 
     const combos = [];
-    list1.forEach(a => {
-        list2.forEach(b => {
-            combos.push(`${a}-${b}`);
-            combos.push(`${b}-${a}`);
-        });
-    });
+    list1.forEach(a => list2.forEach(b => {
+        combos.push(`${a}-${b}`);
+        combos.push(`${b}-${a}`);
+    }));
 
     // 単勝人気
     const winRank = {};
-    tanfuku.forEach(h => {
-        winRank[h.num] = Number(h.rank);
-    });
+    tanfuku.forEach(h => winRank[h.num] = Number(h.rank));
 
-    // 5) 馬単50倍以上 ＋ 単勝13人気以内 ＋ 単勝1人気が絡む馬単は除外
+    // 4) 馬単フィルタ
     const hits = umatan.filter(u => {
 
         if (!combos.includes(u.pair)) return false;
 
+        const uOdds = Number(u.odds);
+
+        // ★ 全レース共通除外条件
+        if (isCommonExcluded(u.pair, uOdds, winRank)) return false;
+
         // 馬単50倍以上
-        if (Number(u.odds) < 50.0) return false;
+        if (uOdds < NINKI2_5_CONFIG.umatanMinOdds) return false;
 
         const [a, b] = u.pair.split("-").map(Number);
 
         // 単勝13人気以内
-        if (winRank[a] > 13 || winRank[b] > 13) return false;
+        if (winRank[a] > NINKI2_5_CONFIG.maxWinRank ||
+            winRank[b] > NINKI2_5_CONFIG.maxWinRank) return false;
 
         // 単勝1人気が絡む組み合わせは除外
-        if (winRank[a] === 1 || winRank[b] === 1) return false;
+        if (NINKI2_5_CONFIG.excludeWinRank1 &&
+            (winRank[a] === 1 || winRank[b] === 1)) return false;
 
         return true;
     });
 
     if (hits.length === 0) return "";
 
+    // ハイライト
+    window._highlightPairs = window._highlightPairs || [];
+    window._highlightPairs.push(pair);
+
+    return hits.map(h => `${h.pair} (${h.odds})`).join(" ");
+}
+
+    // ============================================
+    // ★ 2人気6番目の買い目抽出
+    // ============================================
+const NINKI2_6_CONFIG = {
+    oddsRange: {
+        15: [30.0, 35.0],
+        17: [34.0, 50.5],
+        19: [33.5, 55.5]
+    },
+    umatanMinOdds: 50.0,
+    maxWinRank: 13,
+    excludeWinRank1: true
+};
+
+function extractNinki2_6Buy(wakurenResult, umatan, tanfuku) {
+
+    // 1) 「2人気6番目」ラベルを持つ行を探す
+    const row = wakurenResult.list.find(d =>
+        d.logicText.includes("2人気6番目")
+    );
+    if (!row) return "";
+
+    const ninki = Number(row.rank);
+    const odds  = Number(row.odds);
+    const pair  = row.pair;
+
+    // 2) 人気ごとの枠連オッズ範囲
+    const range = NINKI2_6_CONFIG.oddsRange[ninki];
+    if (!range) return "";
+
+    const [minOdds, maxOdds] = range;
+
+    // 枠連オッズ範囲チェック
+    if (odds < minOdds || odds > maxOdds) return "";
+
+    // 3) 枠 → 馬番展開
+    const [w1, w2] = pair.split("-").map(Number);
+    const list1 = tanfuku.filter(h => Number(h.waku) === w1).map(h => h.num);
+    const list2 = tanfuku.filter(h => Number(h.waku) === w2).map(h => h.num);
+
+    const combos = [];
+    list1.forEach(a => list2.forEach(b => {
+        combos.push(`${a}-${b}`);
+        combos.push(`${b}-${a}`);
+    }));
+
+    // 単勝人気
+    const winRank = {};
+    tanfuku.forEach(h => winRank[h.num] = Number(h.rank));
+
+    // 4) 馬単フィルタ
+    const hits = umatan.filter(u => {
+
+        if (!combos.includes(u.pair)) return false;
+
+        const uOdds = Number(u.odds);
+
+        // ★ 全レース共通除外条件
+        if (isCommonExcluded(u.pair, uOdds, winRank)) return false;
+
+        // 馬単50倍以上
+        if (uOdds < NINKI2_6_CONFIG.umatanMinOdds) return false;
+
+        const [a, b] = u.pair.split("-").map(Number);
+
+        // 単勝13人気以内
+        if (winRank[a] > NINKI2_6_CONFIG.maxWinRank ||
+            winRank[b] > NINKI2_6_CONFIG.maxWinRank) return false;
+
+        // 単勝1人気が絡む組み合わせは除外
+        if (NINKI2_6_CONFIG.excludeWinRank1 &&
+            (winRank[a] === 1 || winRank[b] === 1)) return false;
+
+        return true;
+    });
+
+    if (hits.length === 0) return "";
+
+    // ハイライト
     window._highlightPairs = window._highlightPairs || [];
     window._highlightPairs.push(pair);
 
