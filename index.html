@@ -938,21 +938,30 @@ function renderWakurenTable(targetId, result) {
     document.getElementById("buyResult").innerHTML = "";
     document.getElementById("buyCount").innerText = "";
 
-    // ▼ 見送り判定（ゾロ目）
-    const pair1 = wakuren[0].pair;
-    const pair2 = wakuren[1].pair;
+// ▼ 見送り判定（ゾロ目）
+const pair1 = wakuren[0].pair;
+const pair2 = wakuren[1].pair;
 
-    const isZorome = (pair) => {
-        const [a, b] = pair.split("-");
-        return a === b;
-    };
+const isZorome = (pair) => {
+    const [a, b] = pair.split("-");
+    return a === b;
+};
 
-    if (isZorome(pair1) || isZorome(pair2)) {
-        document.getElementById("buyResult").innerHTML =
-            `<span style="color:red; font-weight:bold; font-size:18px;">見送り</span>`;
-        document.getElementById("buyCount").innerText = "";
-        return;
-    }
+if (isZorome(pair1) || isZorome(pair2)) {
+    document.getElementById("buyResult").innerHTML =
+        `<span style="color:red; font-weight:bold; font-size:18px;">見送り</span>`;
+    document.getElementById("buyCount").innerText = "";
+    return;
+}
+
+// ▼ 枠連1人気と2人気のオッズ差チェック（買い目抽出は続行）
+const odds1 = Number(wakuren[0].odds);
+const odds2 = Number(wakuren[1].odds);
+
+if (Math.abs(odds1 - odds2) <= 1.0) {
+    document.getElementById("buyResult").innerHTML =
+        `<span style="color:blue; font-weight:bold; font-size:16px;">現時点では見送りが賢明</span>`;
+}
 
     // ▼ チェックボックス取得
     const conds = getBuyConditions();
