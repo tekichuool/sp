@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>テキチュールの使い方</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-light: #eff6ff;
+      --accent: #f59e0b;
+      --danger: #dc2626;
+      --danger-bg: #fef2f2;
+      --text: #1f2937;
+      --text-sub: #6b7280;
+      --border: #e5e7eb;
+      --bg: #f9fafb;
+      --card: #ffffff;
+      --shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Meiryo", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.8;
+      padding: 2rem 1rem;
+    }
+
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: var(--primary);
+      letter-spacing: -0.02em;
+    }
+
+    .subtitle {
+      font-size: 0.95rem;
+      color: var(--text-sub);
+      margin-top: 0.25rem;
+    }
+
+    .card {
+      background: var(--card);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      padding: 1.75rem;
+      margin-bottom: 1.5rem;
+      border: 1px solid var(--border);
+    }
+
+    h2 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid var(--primary-light);
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    h2 .icon {
+      font-size: 1.1em;
+    }
+
+    p {
+      margin-bottom: 0.75rem;
+    }
+
+    .note {
+      background: #fffbeb;
+      border-left: 4px solid var(--accent);
+      padding: 0.75rem 1rem;
+      border-radius: 0 6px 6px 0;
+      margin: 0.75rem 0;
+      font-size: 0.9rem;
+      color: #92400e;
+    }
+
+    ol.steps {
+      list-style: none;
+      counter-reset: step;
+      padding-left: 0;
+    }
+
+    ol.steps > li {
+      position: relative;
+      padding-left: 3rem;
+      margin-bottom: 1.25rem;
+      min-height: 2.5rem;
+    }
+
+    ol.steps > li::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 2rem;
+      height: 2rem;
+      background: var(--primary);
+      color: white;
+      font-weight: 700;
+      font-size: 0.9rem;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 4px rgba(37,99,235,0.2);
+    }
+
+    ol.steps > li strong {
+      color: var(--primary);
+      font-weight: 700;
+    }
+
+    .highlight-box {
+      background: var(--primary-light);
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      padding: 1rem;
+      margin: 1rem 0;
+      font-size: 0.95rem;
+    }
+
+    .highlight-box .label {
+      font-weight: 700;
+      color: var(--primary);
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+
+    .warning {
+      background: var(--danger-bg);
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      padding: 1.25rem;
+    }
+
+    .warning h2 {
+      color: var(--danger);
+      border-bottom-color: #fecaca;
+    }
+
+    .warning ul {
+      list-style: none;
+      padding-left: 0;
+    }
+
+    .warning ul li {
+      position: relative;
+      padding-left: 1.5rem;
+      margin-bottom: 0.5rem;
+      color: #991b1b;
+    }
+
+    .warning ul li::before {
+      content: "⚠";
+      position: absolute;
+      left: 0;
+      color: var(--danger);
+    }
+
+    .update-badge {
+      display: inline-block;
+      background: #10b981;
+      color: white;
+      font-size: 0.8rem;
+      font-weight: 700;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      margin-top: 0.5rem;
+    }
+
+    kbd {
+      display: inline-block;
+      background: #f3f4f6;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      padding: 0.1rem 0.4rem;
+      font-family: inherit;
+      font-size: 0.85em;
+      font-weight: 600;
+      color: #374151;
+      box-shadow: 0 1px 0 rgba(0,0,0,0.05);
+    }
+
+    .repeat-info {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 1rem;
+      color: #166534;
+      font-weight: 600;
+      text-align: center;
+    }
+
+    @media (max-width: 640px) {
+      body { padding: 1rem 0.75rem; }
+      .card { padding: 1.25rem; }
+      h1 { font-size: 1.5rem; }
+      ol.steps > li { padding-left: 2.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <header>
+      <h1>テキチュールの使い方</h1>
+      <p class="subtitle">How to use</p>
+    </header>
+
+    <section class="card">
+      <h2><span class="icon">📖</span>はじめに</h2>
+      <p><strong>【てきちゅーる】</strong>はボタンをクリックするだけで簡単に馬券が当たる（的中する）ツールです。</p>
+      <p>枠連オッズをベースに解析し馬単を抽出するプログラムとなっています。</p>
+      <div class="note">
+        ※ 14頭～16頭立てのレースに対応（それら以外のレースも枠連発売があるレースには使える）
+      </div>
+    </section>
+
+    <section class="card">
+      <h2><span class="icon">🐴</span>使い方（How to use）</h2>
+      <ol class="steps">
+        <li>
+          <strong>CNAME取得</strong>のリンクを開いてCNAMEを取得します。別窓で「CNAME取得ツール」へ移動。
+          <div class="note">
+            ☆「CNAME取得ツール」とは、JRA公式より各券種オッズと馬データをリアルタイムで取得するツールです。
+          </div>
+        </li>
+        <li>
+          <strong>「開催日」「開催場」「レース番号」</strong>を選択し、<kbd>CNAMEを取得</kbd>をクリックします。
+        </li>
+        <li>
+          （手順3は元の文章に記載がないためスキップ）
+        </li>
+        <li>
+          <strong>「CNAME（単勝・複勝 / 枠連 / 馬単 をまとめて貼る）」</strong>の下のテキストボックスにCNAMEを貼り付けます。
+        </li>
+        <li>
+          <kbd>オッズ更新</kbd>ボタンをクリック。クリックした時点でのオッズを取得します。
+          <div class="highlight-box">
+            <span class="label">表示されるメッセージ：</span>
+            「オッズを更新しました。『解析』ボタンを押してください。」
+            <br>→ <strong>OK</strong>をクリック（レース情報が表示されるので確認）
+          </div>
+        </li>
+        <li>
+          <kbd>解析</kbd>をクリック。枠連オッズ、単複オッズ、馬単オッズ、馬データを取得します。
+        </li>
+        <li>
+          <kbd>買い目抽出</kbd>をクリック。買い目に該当した枠連組み合わせが<strong>黄色にハイライト</strong>されます。
+          <div class="note">
+            ※ 枠連組み合わせに該当する馬単が抽出されます。「買い目抽出 結果 買い目合計：」の個所を確認してください。
+          </div>
+        </li>
+      </ol>
+
+      <div class="repeat-info">
+        【5】オッズ更新 → 【6】解析 → 【7】買い目抽出<br>
+        を繰り返せば最新の情報を取得できます。
+      </div>
+
+      <ol class="steps" start="8" style="counter-reset: step 7;">
+        <li>
+          <kbd>クリア</kbd>をクリックすると、全ての情報がクリアされます。
+        </li>
+      </ol>
+    </section>
+
+    <section class="card warning">
+      <h2><span class="icon">⚠️</span>注意事項</h2>
+      <ul>
+        <li>ほぼ当たりますが、<strong>100%当たるという保証はしておりません</strong>。</li>
+        <li>馬券の購入は<strong>自己責任</strong>でお願いします。</li>
+        <li>当サイトを<strong>SNSや口コミで拡散しない</strong>ようお願い申し上げます。</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2><span class="icon">🔄</span>プログラムの更新</h2>
+      <p>現在は <strong>Ver.2</strong> です。</p>
+      <p>Ver.3までは更新（アップデート）致します。</p>
+      <span class="update-badge">今後のアップデート予定あり</span>
+    </section>
+
+  </div>
+</body>
+</html>
