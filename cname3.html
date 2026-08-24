@@ -284,7 +284,10 @@
       const res = await fetch(GAS_URL + '?action=getSchedule');
       const json = await res.json();
       
-      if (!json.ok) throw new Error(json.error);
+      // json.error の内容を明確にして例外を投げる
+      if (!json.ok) {
+        throw new Error('GAS側エラー: ' + (json.error || JSON.stringify(json)));
+      }
       
       scheduleData = json.data || [];
       if (scheduleData.length === 0) {
