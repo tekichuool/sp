@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CNAME取得ツール(3連複)</title>
+  <title>CNAME取得ツール (3連複対応)</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -172,7 +172,7 @@
       font-size: 11px;
       font-weight: bold;
       color: #888;
-      width: 52px;
+      width: 52px; /* 3連複の文字幅に合わせて少し調整 */
       flex-shrink: 0;
     }
     .cname-value {
@@ -201,10 +201,6 @@
     }
     .btn-copy:active { background: #388e3c; }
     .btn-copy.copied { background: #757575; }
-
-    /* 曜日カラー */
-    .sat { color: #1565c0; font-weight: bold; }
-    .sun { color: #c62828; font-weight: bold; }
 
     .loading-overlay {
       display: none;
@@ -246,19 +242,16 @@
 
 <div class="container">
 
-  <!-- 開催日 -->
   <div class="card">
     <div class="card-title">開催日</div>
     <select id="dateSelect"></select>
   </div>
 
-  <!-- 開催場 -->
   <div class="card">
     <div class="card-title">開催場</div>
     <div class="course-list" id="courseArea"></div>
   </div>
 
-  <!-- レース番号 -->
   <div class="card">
     <div class="card-title">レース番号</div>
     <div class="select-all-row">
@@ -268,60 +261,95 @@
     <div class="race-grid" id="raceArea"></div>
   </div>
 
-  <!-- 取得ボタン -->
   <div class="card">
     <button class="btn-fetch" id="fetchBtn">CNAMEを取得</button>
     <div class="status" id="status"></div>
   </div>
 
-  <!-- 結果 -->
   <div id="resultArea"></div>
 
 </div>
 
 <script>
-  // ★ここにGAS WebAppのURLを設定してください★
-  const GAS_URL = 'https://script.google.com/macros/s/AKfycbzCpiytd7ZZVTQqB7cQoT6hWt1Q3jOwtxPK2d8H6RgcuxUMmIu2f0D_2NK6UObpaBBf7g/exec';
+  // 正常に動いているGASのウェブアプリURLを指定してください
+  const GAS_URL = 'https://script.google.com/macros/s/AKfycbwDjaemukb4WjRJfQtFA0qh70zDAj7tUv4axWMZV7xgycWPkkzurjf5dRu_smV86GW-JA/exec';
 
   let scheduleData = [];
   let currentDate = null;
 
-window.onload = async function () {
+  // 1. 起動時の処理：開催スケジュール取得
+  window.onload = async function () {
     showLoading('開催情報を取得中...');
     try {
-      const fetchUrl = GAS_URL + '?action=getSchedule';
-      console.log('リクエスト送信先:', fetchUrl); // 念のためログ出力
+      const res = await fetch(GAS_URL + '?action=getSchedule');
+      const json = await res.json();
       
-      const res = await fetch(fetchUrl);
-      const text = await res.text(); // まず生テキストとして受け取る
-      console.log('サーバーからの生レスポンス:', text);
-
-      let json;
-      try {
-        json = JSON.parse(text);
-      } catch (parseErr) {
-        throw new Error('JSONパース失敗 (HTMLが返されている可能性): ' + text.substring(0, 100));
-      }
-
-      if (!json.ok) {
-        // サーバーが返したエラー内容をそのまま画面に出す
-        throw new Error('サーバーエラー内容: ' + (json.error || JSON.stringify(json)));
-      }
+      if (!json.ok) throw new Error(json.error);
+      
       scheduleData = json.data || [];
-      if (scheduleData.length === 0) throw new Error('開催情報が取得できませんでした');
-      populateDateSelect();
+      if (scheduleData.length === 0) {
+        setStatus('今週のオッズは未発表です。', true);
+      } else {
+        populateDateSelect();
+      }
     } catch (e) {
-      // エラーのスタックトレースや詳細をそのまま画面に出す
-      console.error(e);
-      setStatus('初期化エラー詳細: ' + e.stack || e.message, true);
+      console.error('Fetch Error:', e);
+      setStatus('初期化エラー: ' + e.message, true);
     } finally {
       hideLoading();
     }
   };
 
+  // 2. CNAME取得ボタンクリック時
+  async function onFetchClick() {
+    const selectedDate = document.getElementById('dateSelect').value;
+    const courseRadio = document.querySelector('input[name="course"]:checked');
+    const selectedCourse = courseRadio ? courseRadio.value : null;
+    
+    if (!selectedDate || !selectedCourse) {
+      alert('開催日と開催場を選択してください');
+      return;
+    }
+    
+    const races = Array.from(
+      document.querySelectorAll('#raceArea input[type="checkbox"]:checked')
+    ).map(cb => cb.value);
+    
+    if (races.length === 0) {
+      alert('レースを1つ以上選択してください');
+      return;
+    }
+
+    document.getElementById('resultArea').innerHTML = '';
+    showLoading('CNAMEを取得中...');
+    setStatus('');
+    document.getElementById('fetchBtn').disabled = true;
+
+    try {
+      const url = GAS_URL 
+        + '?action=getCnames'
+        + '&dateLabel=' + encodeURIComponent(selectedDate)
+        + '&course='    + encodeURIComponent(selectedCourse)
+        + '&races='     + encodeURIComponent(JSON.stringify(races));
+
+      const res = await fetch(url);
+      const json = await res.json();
+      
+      if (!json.ok) throw new Error(json.error);
+      renderResults(json.data);
+    } catch (e) {
+      console.error('Fetch Error:', e);
+      setStatus('取得エラー: ' + e.message, true);
+    } finally {
+      hideLoading();
+      document.getElementById('fetchBtn').disabled = false;
+    }
+  }
+
+  // --- イベントリスナーの登録 ---
   document.getElementById('fetchBtn').addEventListener('click', onFetchClick);
 
-  // ---- 開催日セレクト ----
+  // --- UI制御用関数群 ---
   function populateDateSelect() {
     const sel = document.getElementById('dateSelect');
     sel.innerHTML = '';
@@ -329,14 +357,11 @@ window.onload = async function () {
       const opt = document.createElement('option');
       opt.value = d.dateLabel;
       opt.textContent = d.dateLabel;
-      if (d.dateLabel.includes('土曜')) opt.className = 'sat';
-      else if (d.dateLabel.includes('日曜')) opt.className = 'sun';
       sel.appendChild(opt);
     });
     currentDate = scheduleData[0].dateLabel;
     updateDateColor(sel);
     populateCourseArea();
-
     sel.addEventListener('change', () => {
       currentDate = sel.value;
       updateDateColor(sel);
@@ -346,52 +371,44 @@ window.onload = async function () {
 
   function updateDateColor(sel) {
     const label = sel.value;
-    sel.style.color = label.includes('土曜') ? '#1565c0' : label.includes('日曜') ? '#c62828' : '';
+    sel.style.color = label.includes('土曜') ? '#1565c0'
+                    : label.includes('日曜') ? '#c62828' : '';
     sel.style.fontWeight = 'bold';
   }
 
-  // ---- 開催場 ----
   function populateCourseArea() {
     const area = document.getElementById('courseArea');
     area.innerHTML = '';
     const dateBlock = scheduleData.find(d => d.dateLabel === currentDate);
     if (!dateBlock) return;
-
     dateBlock.meetings.forEach((m, idx) => {
       const id = 'course_' + idx;
       const label = document.createElement('label');
       label.className = 'radio-item';
       label.htmlFor = id;
-
       const radio = document.createElement('input');
       radio.type = 'radio';
       radio.name = 'course';
       radio.value = m.course;
       radio.id = id;
       if (idx === 0) radio.checked = true;
-
       label.appendChild(radio);
-      label.appendChild(document.createTextNode(m.label + '（' + m.course + '）'));
+      label.appendChild(document.createTextNode(' ' + m.label + '（' + m.course + '）'));
       area.appendChild(label);
     });
-
     populateRaceArea();
   }
 
-  // ---- レース番号 ----
   function populateRaceArea() {
     const area = document.getElementById('raceArea');
     area.innerHTML = '';
     for (let i = 1; i <= 12; i++) {
-      const id = 'race_' + i;
       const label = document.createElement('label');
       label.className = 'race-btn';
-
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.value = i + 'R';
-      cb.id = id;
-
+      cb.id = 'race_' + i;
       label.appendChild(cb);
       label.appendChild(document.createTextNode(i + 'R'));
       area.appendChild(label);
@@ -405,58 +422,9 @@ window.onload = async function () {
     document.querySelectorAll('#raceArea input[type="checkbox"]').forEach(cb => cb.checked = false);
   }
 
-  // ---- 取得ボタン ----
-  async function onFetchClick() {
-    const selectedDate = document.getElementById('dateSelect').value;
-    const courseRadio = document.querySelector('input[name="course"]:checked');
-    const selectedCourse = courseRadio ? courseRadio.value : null;
-
-    if (!selectedDate || !selectedCourse) {
-      alert('開催日と開催場を選択してください');
-      return;
-    }
-
-    const races = Array.from(
-      document.querySelectorAll('#raceArea input[type="checkbox"]:checked')
-    ).map(cb => cb.value);
-
-    if (races.length === 0) {
-      alert('レースを1つ以上選択してください');
-      return;
-    }
-
-    document.getElementById('resultArea').innerHTML = '';
-    showLoading('CNAME取得中...');
-    setStatus('');
-    document.getElementById('fetchBtn').disabled = true;
-
-    try {
-      const res = await fetch(GAS_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' }, // GASのCORS対策でtext/plainを使用
-        body: JSON.stringify({
-          action: 'getCnames',
-          dateLabel: selectedDate,
-          course: selectedCourse,
-          races: races
-        })
-      });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error);
-      renderResults(json.data);
-    } catch (e) {
-      setStatus('エラー: ' + e.message, true);
-    } finally {
-      hideLoading();
-      document.getElementById('fetchBtn').disabled = false;
-    }
-  }
-
-  // ---- 結果表示 ----
   function renderResults(data) {
     const area = document.getElementById('resultArea');
     area.innerHTML = '';
-
     data.forEach(item => {
       const card = document.createElement('div');
       card.className = 'result-card';
@@ -475,6 +443,7 @@ window.onload = async function () {
         errDiv.textContent = 'エラー: ' + item.error;
         body.appendChild(errDiv);
       } else {
+        // ★ 3連複（pw157）の表示を追加
         [
           { label: '単複', value: item.pw151 },
           { label: '枠連', value: item.pw153 },
@@ -483,15 +452,12 @@ window.onload = async function () {
         ].forEach(({ label, value }) => {
           const row = document.createElement('div');
           row.className = 'cname-row';
-
           const lbl = document.createElement('div');
           lbl.className = 'cname-label';
           lbl.textContent = label;
-
           const val = document.createElement('div');
           val.className = 'cname-value';
           val.textContent = value;
-
           row.appendChild(lbl);
           row.appendChild(val);
           body.appendChild(row);
@@ -501,6 +467,7 @@ window.onload = async function () {
         copyBtn.className = 'btn-copy';
         copyBtn.textContent = 'コピー';
         copyBtn.addEventListener('click', () => {
+          // ★ コピー時にも3連複（item.pw157）を含める
           const text = [item.pw151, item.pw153, item.pw156, item.pw157].join('\n');
           navigator.clipboard.writeText(text).then(() => {
             copyBtn.textContent = 'コピー完了 ✓';
@@ -513,13 +480,11 @@ window.onload = async function () {
         });
         body.appendChild(copyBtn);
       }
-
       card.appendChild(body);
       area.appendChild(card);
     });
   }
 
-  // ---- ローディング ----
   function showLoading(msg) {
     document.getElementById('loadingMsg').textContent = msg || '処理中...';
     document.getElementById('loadingOverlay').classList.add('show');
