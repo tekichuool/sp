@@ -286,17 +286,31 @@
   let scheduleData = [];
   let currentDate = null;
 
-  window.onload = async function () {
+window.onload = async function () {
     showLoading('開催情報を取得中...');
     try {
-      const res = await fetch(GAS_URL + '?action=getSchedule');
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error);
+      const fetchUrl = GAS_URL + '?action=getSchedule';
+      console.log('リクエスト送信先:', fetchUrl); // 念のためログ出力
+      
+      const res = await fetch(fetchUrl);
+      const text = await res.text(); // まず生テキストとして受け取る
+      console.log('サーバーからの生レスポンス:', text);
+
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch (parseErr) {
+        throw new Error('JSONパース失敗 (HTMLが返されている可能性): ' + text.substring(0, 100));
+      }
+
+      if (!json.ok) throw new Error(json.error || '不明なサーバーエラー');
       scheduleData = json.data || [];
       if (scheduleData.length === 0) throw new Error('開催情報が取得できませんでした');
       populateDateSelect();
     } catch (e) {
-      setStatus('初期化エラー: ' + e.message, true);
+      // エラーのスタックトレースや詳細をそのまま画面に出す
+      console.error(e);
+      setStatus('初期化エラー詳細: ' + e.stack || e.message, true);
     } finally {
       hideLoading();
     }
