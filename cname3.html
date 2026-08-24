@@ -303,7 +303,10 @@ window.onload = async function () {
         throw new Error('JSONパース失敗 (HTMLが返されている可能性): ' + text.substring(0, 100));
       }
 
-      if (!json.ok) throw new Error(json.error || '不明なサーバーエラー');
+      if (!json.ok) {
+        // サーバーが返したエラー内容をそのまま画面に出す
+        throw new Error('サーバーエラー内容: ' + (json.error || JSON.stringify(json)));
+      }
       scheduleData = json.data || [];
       if (scheduleData.length === 0) throw new Error('開催情報が取得できませんでした');
       populateDateSelect();
