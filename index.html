@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>競馬オッズ解析 - 枠番出現順一覧 実装版（GAS連携）</title>
+    <title>てきちゅーる</title>
     <style>
 * { box-sizing: border-box; }
 
@@ -264,7 +264,7 @@ td {
             <label for="cname">CNAME（単勝・複勝 / 枠連 / 馬単 をまとめて貼る）</label>
             <textarea id="cname" placeholder="pw151... pw153... pw156..."></textarea>
             <div class="note">
-                            ・ <a href="https://tekichuool.github.io/sp/cname.html">CNAME取得</a>　│　<a href="https://tekichuool.github.io/sp/cname3.html">CNAME3連複</a>　│　<a href="https://www.jra.go.jp/">JRA公式 PC</a>　│　<a href="https://sp.jra.jp/">JRA公式スマホ</a>　│　<a href="https://tekichuool.github.io/sp/howto.html">てきちゅーるの使い方</a><br>
+                            ・ <a href="https://tekichuool.github.io/sp/cname.html">CNAME取得</a>　│　<a href="https://tekichuool.github.io/sp/3renpuku.html">3連複</a>　│　<a href="https://www.jra.go.jp/">JRA公式 PC</a>　│　<a href="https://sp.jra.jp/">JRA公式スマホ</a>　│　<a href="https://tekichuool.github.io/sp/howto.html">てきちゅーるの使い方</a><br>
                 ・Ver.3 <br>
             </div>
         </div>
@@ -2396,7 +2396,199 @@ function isCondChecked(val) {
 }
 
 // ================================
-// --- 買い目抽出のメイン関数（完全版） ---
+// --- オッズ僅差チェック関数 ---
+// ================================
+function isCloseOdds(itemA, itemB, maxDiff = 0.3) {
+    if (!itemA || !itemB) return false;
+    const oddsA = parseFloat(itemA.odds);
+    const oddsB = parseFloat(itemB.odds);
+    if (isNaN(oddsA) || isNaN(oddsB)) return false;
+
+    return Math.abs(oddsA - oddsB) <= maxDiff;
+}
+
+// ================================
+// --- オッズ僅差チェック関数 ---
+// ================================
+function isCloseOdds(itemA, itemB, maxDiff = 0.3) {
+    if (!itemA || !itemB) return false;
+    const oddsA = parseFloat(itemA.odds);
+    const oddsB = parseFloat(itemB.odds);
+    if (isNaN(oddsA) || isNaN(oddsB)) return false;
+
+    return Math.abs(oddsA - oddsB) <= maxDiff;
+}
+
+// ================================
+// --- 各種買い目抽出関数群 ---
+// ================================
+
+// Helper: 汎用的な枠番組み合わせから馬単展開を行う共通処理
+function expandUmatanHits(targetList, cfgSub, wakuOddsList, umatan, tanfuku, umatanRankMap, winRank) {
+    let results = [];
+    if (!cfgSub) return results;
+
+    targetList.forEach(target => {
+        const ninki = Number(target.rank);
+        const odds = Number(target.odds);
+        const pair = target.pair;
+
+        const range = cfgSub.oddsRange ? cfgSub.oddsRange[ninki] : null;
+        if (range) {
+            const [minOdds, maxOdds] = range;
+            if (odds < minOdds || odds > maxOdds) return;
+        }
+
+        const [w1, w2] = pair.split("-").map(Number);
+        const list1 = tanfuku.filter(h => Number(h.waku) === w1).map(h => h.num || h.horse);
+        const list2 = tanfuku.filter(h => Number(h.waku) === w2).map(h => h.num || h.horse);
+
+        const combos = [];
+        list1.forEach(a => list2.forEach(b => {
+            combos.push(`${a}-${b}`);
+            combos.push(`${b}-${a}`);
+        }));
+
+        const hits = umatan.filter(u => {
+            if (!combos.includes(u.pair)) return false;
+            const uOdds = Number(u.odds);
+            const uRank = umatanRankMap[u.pair] || 999;
+
+            if (typeof isCommonExcluded === "function" && isCommonExcluded(u.pair, uOdds, winRank)) return false;
+            if (cfgSub.umatanMinOdds && uOdds < cfgSub.umatanMinOdds) return false;
+            if (cfgSub.maxUmatanRank && uRank > cfgSub.maxUmatanRank) return false;
+
+            return true;
+        });
+
+        if (hits.length > 0) {
+            results.push({ pair: pair, odds: target.odds, hits: hits });
+        }
+    });
+
+    return results;
+}
+
+// ▼ 枠連人気（1人気/2人気、2人気/3人気）の抽出関数
+function extractNinkiBuy(wakurenResult, umatan, tanfuku) {
+    if (!wakurenResult || !wakurenResult.list) return null;
+
+    const list = wakurenResult.list;
+    const sortedUmatan = [...umatan].sort((a, b) => Number(a.odds) - Number(b.odds));
+    const umatanRankMap = {};
+    sortedUmatan.forEach((u, index) => { umatanRankMap[u.pair] = index + 1; });
+    const winRank = {};
+    tanfuku.forEach(h => winRank[h.num || h.horse] = Number(h.rank));
+
+    const r1 = list.find(d => Number(d.rank) === 1);
+    const r2 = list.find(d => Number(d.rank) === 2);
+    const r3 = list.find(d => Number(d.rank) === 3);
+
+    let targets1_2 = [];
+    let targets2_3 = [];
+
+    // 1人気と2人気の僅差判定（0.3以内なら双方相互追加）
+    if (r1) {
+        targets1_2.push(r1);
+        if (r2 && isCloseOdds(r1, r2, 0.3)) targets1_2.push(r2);
+    }
+
+    // 2人気と3人気の僅差判定（0.3以内なら双方相互追加）
+    if (r2) {
+        targets2_3.push(r2);
+        if (r3 && isCloseOdds(r2, r3, 0.3)) targets2_3.push(r3);
+        if (r1 && isCloseOdds(r2, r1, 0.3) && !targets2_3.includes(r1)) targets2_3.push(r1);
+    }
+
+    const cfg1_2 = typeof NINKI1_2_CONFIG !== "undefined" ? NINKI1_2_CONFIG : {};
+    const cfg2_3 = typeof NINKI2_3_CONFIG !== "undefined" ? NINKI2_3_CONFIG : {};
+
+    return {
+        rank1_2: expandUmatanHits(targets1_2, cfg1_2, list, umatan, tanfuku, umatanRankMap, winRank),
+        rank2_3: expandUmatanHits(targets2_3, cfg2_3, list, umatan, tanfuku, umatanRankMap, winRank)
+    };
+}
+
+// ▼ 縦・裏（縦2〜7、裏3〜7）の抽出統合関数
+function extractTateUraBuy(wakurenResult, umatan, tanfuku) {
+    if (!wakurenResult || !wakurenResult.list) return null;
+
+    const list = wakurenResult.list;
+    const sortedUmatan = [...umatan].sort((a, b) => Number(a.odds) - Number(b.odds));
+    const umatanRankMap = {};
+    sortedUmatan.forEach((u, index) => { umatanRankMap[u.pair] = index + 1; });
+    const winRank = {};
+    tanfuku.forEach(h => winRank[h.num || h.horse] = Number(h.rank));
+
+    // 該当行の取得
+    const getRow = (label) => list.find(d => d.logicText && d.logicText.includes(label));
+
+    const tate = {
+        2: getRow("縦2"), 3: getRow("縦3"), 4: getRow("縦4"),
+        5: getRow("縦5"), 6: getRow("縦6"), 7: getRow("縦7")
+    };
+    const ura = {
+        3: getRow("裏3"), 4: getRow("裏4"), 5: getRow("裏5"),
+        6: getRow("裏6"), 7: getRow("裏7")
+    };
+
+    // 対象ターゲットの動的追加（隣接かつオッズ差0.3以内）
+    const getTargetsWithCloseOdds = (dict, mainKey, adjKeys) => {
+        let targets = [];
+        const mainItem = dict[mainKey];
+        if (!mainItem) return targets;
+
+        targets.push(mainItem);
+        adjKeys.forEach(adjKey => {
+            const adjItem = dict[adjKey];
+            if (adjItem && isCloseOdds(mainItem, adjItem, 0.3)) {
+                targets.push(adjItem);
+            }
+        });
+        return targets;
+    };
+
+    // 指定された範囲のみ隣接判定を行うターゲットリスト
+    const tateTargets = {
+        2: getTargetsWithCloseOdds(tate, 2, [3]),       // 縦2と縦3
+        3: getTargetsWithCloseOdds(tate, 3, [2, 4]),    // 縦3(と縦2/縦4)
+        4: getTargetsWithCloseOdds(tate, 4, [3, 5]),    // 縦4(と縦3/縦5)
+        5: getTargetsWithCloseOdds(tate, 5, [4, 6]),    // 縦5(と縦4/縦6)
+        6: getTargetsWithCloseOdds(tate, 6, [5, 7]),    // 縦6(と縦5/縦7)
+        7: getTargetsWithCloseOdds(tate, 7, [6])        // 縦7と縦6
+    };
+
+    const uraTargets = {
+        3: getTargetsWithCloseOdds(ura, 3, [4]),        // 裏3と裏4
+        4: getTargetsWithCloseOdds(ura, 4, [3, 5]),     // 裏4(と裏3/裏5)
+        5: getTargetsWithCloseOdds(ura, 5, [4, 6]),     // 裏5(と裏4/裏6)
+        6: getTargetsWithCloseOdds(ura, 6, [5, 7]),     // 裏6(と裏5/裏7)
+        7: getTargetsWithCloseOdds(ura, 7, [6])         // 裏7と裏6
+    };
+
+    // 設定取得
+    const getCfg = (prefix, num) => {
+        const globalName = `${prefix.toUpperCase()}${num}_CONFIG`;
+        return typeof window[globalName] !== "undefined" ? window[globalName] : {};
+    };
+
+    let results = { tate: {}, ura: {} };
+
+    // 縦2〜7の処理
+    [2, 3, 4, 5, 6, 7].forEach(n => {
+        results.tate[n] = expandUmatanHits(tateTargets[n], getCfg("tate", n), list, umatan, tanfuku, umatanRankMap, winRank);
+    });
+
+    // 裏3〜7の処理
+    [3, 4, 5, 6, 7].forEach(n => {
+        results.ura[n] = expandUmatanHits(uraTargets[n], getCfg("ura", n), list, umatan, tanfuku, umatanRankMap, winRank);
+    });
+
+    return results;
+}
+
+// ================================
+// --- 買い目抽出のメイン関数（統合・完全版） ---
 // ================================
 function extractBuy() {
 
@@ -2423,20 +2615,42 @@ function extractBuy() {
 
     // ★ 表示エリア初期化
     let resultHtml = "";
-    document.getElementById("buyResult").innerHTML = "";
-    document.getElementById("buyCount").innerText = "";
+    const buyResultEl = document.getElementById("buyResult");
+    const buyCountEl = document.getElementById("buyCount");
+    const buyResultAreaEl = document.getElementById("buyResultArea");
+
+    if (buyResultEl) buyResultEl.innerHTML = "";
+    if (buyCountEl) buyCountEl.innerText = "";
 
     // ▼ 見送り判定（ゾロ目）
-    if (isRaceOmitted(wakuren)) {
-        document.getElementById("buyResult").innerHTML =
-            `<span style="color:red; font-weight:bold; font-size:18px;">見送り</span>`;
-        document.getElementById("buyCount").innerText = "";
-        document.getElementById("buyResultArea").classList.remove("hidden");
+    if (typeof isRaceOmitted === "function" && isRaceOmitted(wakuren)) {
+        if (buyResultEl) {
+            buyResultEl.innerHTML = `<span style="color:red; font-weight:bold; font-size:18px;">見送り</span>`;
+        }
+        if (buyCountEl) buyCountEl.innerText = "";
+        if (buyResultAreaEl) buyResultAreaEl.classList.remove("hidden");
         return;
     }
 
+    // --- 内部ヘルパー：縦裏形式（3～7番目）のHTML生成・ハイライト登録 ---
+    const processTateUraResult = (labelTitle, subTitle, items) => {
+        if (!items || !Array.isArray(items)) return;
+        items.forEach(d => {
+            addHighlight(d.pair);
+            resultHtml += `【${labelTitle}】<br>`;
+            resultHtml += `${subTitle} <span style="color:blue; font-weight:bold;">${d.pair}</span><br>`;
+            
+            // hits配列がある場合と、整形済みtextがある場合の両方に対応
+            if (d.hits && Array.isArray(d.hits)) {
+                resultHtml += d.hits.map(h => `${h.pair} (${h.odds})`).join(" ") + "<br><br>";
+            } else if (d.text) {
+                resultHtml += `${d.text}<br><br>`;
+            }
+        });
+    };
+
     // ★★★ 枠連1人気〜3人気の抽出処理 ★★★
-    if (isCondChecked("waku1") && typeof extractWaku1Buy === "function") {
+    if (typeof isCondChecked === "function" && isCondChecked("waku1") && typeof extractWaku1Buy === "function") {
         const w1 = extractWaku1Buy(wakuren, umatan, tanfuku);
         if (w1) {
             const pair1 = wakuren[0] ? wakuren[0].pair : "";
@@ -2446,7 +2660,7 @@ function extractBuy() {
         }
     }
 
-    if (isCondChecked("waku2") && typeof extractWaku2Buy === "function") {
+    if (typeof isCondChecked === "function" && isCondChecked("waku2") && typeof extractWaku2Buy === "function") {
         const w2 = extractWaku2Buy(wakuren, umatan, tanfuku);
         if (w2) {
             const pair2 = wakuren[1] ? wakuren[1].pair : "";
@@ -2456,7 +2670,7 @@ function extractBuy() {
         }
     }
 
-    if (isCondChecked("waku3") && typeof extractWaku3Buy === "function") {
+    if (typeof isCondChecked === "function" && isCondChecked("waku3") && typeof extractWaku3Buy === "function") {
         const w3 = extractWaku3Buy(wakuren, umatan, tanfuku);
         if (w3) {
             const pair3 = wakuren[2] ? wakuren[2].pair : "";
@@ -2467,10 +2681,10 @@ function extractBuy() {
     }
 
     // ▼ 縦2番目
-    if (isCondChecked("tate2") && typeof extractTate2Buy === "function") {
+    if (typeof isCondChecked === "function" && isCondChecked("tate2") && typeof extractTate2Buy === "function") {
         const t2 = extractTate2Buy(wakurenResult, umatan, tanfuku);
         if (t2) {
-            const row2 = wakurenResult.list.find(d => d.logicText.includes("縦2"));
+            const row2 = wakurenResult.list ? wakurenResult.list.find(d => d.logicText && d.logicText.includes("縦2")) : null;
             const pair2 = row2 ? row2.pair : "";
             addHighlight(pair2);
             resultHtml += `【縦2番目】 <span style="color:blue; font-weight:bold;">${pair2}</span><br>`;
@@ -2479,125 +2693,55 @@ function extractBuy() {
     }
 
     // ▼ 縦裏3番目
-    if (isCondChecked("tateura3") && typeof extractTateUra3Buy === "function") {
+    if (typeof isCondChecked === "function" && isCondChecked("tateura3") && typeof extractTateUra3Buy === "function") {
         const t3 = extractTateUra3Buy(wakurenResult, umatan, tanfuku);
         if (t3) {
-            if (t3.tate && t3.tate.length > 0) {
-                t3.tate.forEach(d => {
-                    addHighlight(d.pair);
-                    resultHtml += `【縦裏3番目】<br>`;
-                    resultHtml += `縦3番目 <span style="color:blue; font-weight:bold;">${d.pair}</span><br>`;
-                    resultHtml += d.hits.map(h => `${h.pair} (${h.odds})`).join(" ") + "<br><br>";
-                });
-            }
-            if (t3.ura && t3.ura.length > 0) {
-                t3.ura.forEach(d => {
-                    addHighlight(d.pair);
-                    resultHtml += `【縦裏3番目】<br>`;
-                    resultHtml += `裏3番目 <span style="color:blue; font-weight:bold;">${d.pair}</span><br>`;
-                    resultHtml += d.hits.map(h => `${h.pair} (${h.odds})`).join(" ") + "<br><br>";
-                });
-            }
+            processTateUraResult("縦裏3番目", "縦3番目", t3.tate);
+            processTateUraResult("縦裏3番目", "裏3番目", t3.ura);
         }
     }
 
     // ▼ 縦裏4番目
-    if (isCondChecked("tateura4") && typeof extractTateUra4Buy === "function") {
+    if (typeof isCondChecked === "function" && isCondChecked("tateura4") && typeof extractTateUra4Buy === "function") {
         const t4 = extractTateUra4Buy(wakurenResult, umatan, tanfuku);
         if (t4) {
-            if (t4.tate && t4.tate.length > 0) {
-                t4.tate.forEach(d => {
-                    addHighlight(d.pair);
-                    resultHtml += `【縦裏4番目】<br>`;
-                    resultHtml += `縦4番目 <span style="color:blue; font-weight:bold;">${d.pair}</span><br>`;
-                    resultHtml += d.hits.map(h => `${h.pair} (${h.odds})`).join(" ") + "<br><br>";
-                });
-            }
-            if (t4.ura && t4.ura.length > 0) {
-                t4.ura.forEach(d => {
-                    addHighlight(d.pair);
-                    resultHtml += `【縦裏4番目】<br>`;
-                    resultHtml += `裏4番目 <span style="color:blue; font-weight:bold;">${d.pair}</span><br>`;
-                    resultHtml += d.hits.map(h => `${h.pair} (${h.odds})`).join(" ") + "<br><br>";
-                });
-            }
+            processTateUraResult("縦裏4番目", "縦4番目", t4.tate);
+            processTateUraResult("縦裏4番目", "裏4番目", t4.ura);
         }
     }
 
-    // ▼ 縦裏5番目
-    if (isCondChecked("tateura5") && typeof extractTateUra5Buy === "function") {
+    // ▼ 縦裏5番目（オッズ僅差チェック対応）
+    if (typeof isCondChecked === "function" && isCondChecked("tateura5") && typeof extractTateUra5Buy === "function") {
         const t5 = extractTateUra5Buy(wakurenResult, umatan, tanfuku);
         if (t5) {
-            if (t5.tate && t5.tate.length > 0) {
-                t5.tate.forEach(d => {
-                    addHighlight(d.pair);
-                    resultHtml += `【縦裏5番目】<br>`;
-                    resultHtml += `縦5番目 <span style="color:blue; font-weight:bold;">${d.pair}</span><br>`;
-                    resultHtml += d.hits.map(h => `${h.pair} (${h.odds})`).join(" ") + "<br><br>";
-                });
-            }
-            if (t5.ura && t5.ura.length > 0) {
-                t5.ura.forEach(d => {
-                    addHighlight(d.pair);
-                    resultHtml += `【縦裏5番目】<br>`;
-                    resultHtml += `裏5番目 <span style="color:blue; font-weight:bold;">${d.pair}</span><br>`;
-                    resultHtml += d.hits.map(h => `${h.pair} (${h.odds})`).join(" ") + "<br><br>";
-                });
-            }
+            processTateUraResult("縦裏5番目", "縦5番目", t5.tate);
+            processTateUraResult("縦裏5番目", "裏5番目", t5.ura);
         }
     }
 
-    // ▼ 縦裏6番目
-    if (isCondChecked("tateura6") && typeof extractTateUra6Buy === "function") {
+    // ▼ 縦裏6番目（オッズ僅差チェック対応）
+    if (typeof isCondChecked === "function" && isCondChecked("tateura6") && typeof extractTateUra6Buy === "function") {
         const t6 = extractTateUra6Buy(wakurenResult, umatan, tanfuku);
         if (t6) {
-            if (t6.tate && t6.tate.length > 0) {
-                t6.tate.forEach(d => {
-                    addHighlight(d.pair);
-                    resultHtml += `【縦裏6番目】<br>`;
-                    resultHtml += `縦6番目 <span style="color:blue; font-weight:bold;">${d.pair}</span><br>`;
-                    resultHtml += d.hits.map(h => `${h.pair} (${h.odds})`).join(" ") + "<br><br>";
-                });
-            }
-            if (t6.ura && t6.ura.length > 0) {
-                t6.ura.forEach(d => {
-                    addHighlight(d.pair);
-                    resultHtml += `【縦裏6番目】<br>`;
-                    resultHtml += `裏6番目 <span style="color:blue; font-weight:bold;">${d.pair}</span><br>`;
-                    resultHtml += d.hits.map(h => `${h.pair} (${h.odds})`).join(" ") + "<br><br>";
-                });
-            }
+            processTateUraResult("縦裏6番目", "縦6番目", t6.tate);
+            processTateUraResult("縦裏6番目", "裏6番目", t6.ura);
         }
     }
 
     // ▼ 縦裏7番目
-    if (isCondChecked("tateura7") && typeof extractTateUra7Buy === "function") {
+    if (typeof isCondChecked === "function" && isCondChecked("tateura7") && typeof extractTateUra7Buy === "function") {
         const t7 = extractTateUra7Buy(wakurenResult, umatan, tanfuku);
         if (t7) {
-            if (t7.tate && t7.tate.length > 0) {
-                t7.tate.forEach(d => {
-                    addHighlight(d.pair);
-                    resultHtml += `【縦裏7番目】<br>`;
-                    resultHtml += `縦7番目 <span style="color:blue; font-weight:bold;">${d.pair}</span><br>`;
-                    resultHtml += d.hits.map(h => `${h.pair} (${h.odds})`).join(" ") + "<br><br>";
-                });
-            }
-            if (t7.ura && t7.ura.length > 0) {
-                t7.ura.forEach(d => {
-                    addHighlight(d.pair);
-                    resultHtml += `【縦裏7番目】<br>`;
-                    resultHtml += `裏7番目 <span style="color:blue; font-weight:bold;">${d.pair}</span><br>`;
-                    resultHtml += d.hits.map(h => `${h.pair} (${h.odds})`).join(" ") + "<br><br>";
-                });
-            }
+            processTateUraResult("縦裏7番目", "縦7番目", t7.tate);
+            processTateUraResult("縦裏7番目", "裏7番目", t7.ura);
         }
     }
 
     // ▼ 2人気3番目
-    if (isCondChecked("ninki2_3") && typeof extractNinki2_3Buy === "function") {
+    if (typeof isCondChecked === "function" && isCondChecked("ninki2_3") && typeof extractNinki2_3Buy === "function") {
         const n23 = extractNinki2_3Buy(wakurenResult, umatan, tanfuku);
         if (n23) {
-            const row23 = wakurenResult.list.find(d => d.logicText.includes("2人気3"));
+            const row23 = wakurenResult.list ? wakurenResult.list.find(d => d.logicText && d.logicText.includes("2人気3")) : null;
             const pair23 = row23 ? row23.pair : "";
             addHighlight(pair23);
             resultHtml += `【2人気3番目】 <span style="color:blue; font-weight:bold;">${pair23}</span><br>`;
@@ -2606,10 +2750,10 @@ function extractBuy() {
     }
 
     // ▼ 2人気4番目
-    if (isCondChecked("ninki2_4") && typeof extractNinki2_4Buy === "function") {
+    if (typeof isCondChecked === "function" && isCondChecked("ninki2_4") && typeof extractNinki2_4Buy === "function") {
         const n24 = extractNinki2_4Buy(wakurenResult, umatan, tanfuku);
         if (n24) {
-            const row24 = wakurenResult.list.find(d => d.logicText.includes("2人気4"));
+            const row24 = wakurenResult.list ? wakurenResult.list.find(d => d.logicText && d.logicText.includes("2人気4")) : null;
             const pair24 = row24 ? row24.pair : "";
             addHighlight(pair24);
             resultHtml += `【2人気4番目】 <span style="color:blue; font-weight:bold;">${pair24}</span><br>`;
@@ -2618,10 +2762,10 @@ function extractBuy() {
     }
 
     // ▼ 2人気5番目
-    if (isCondChecked("ninki2_5") && typeof extractNinki2_5Buy === "function") {
+    if (typeof isCondChecked === "function" && isCondChecked("ninki2_5") && typeof extractNinki2_5Buy === "function") {
         const n25 = extractNinki2_5Buy(wakurenResult, umatan, tanfuku);
         if (n25) {
-            const row25 = wakurenResult.list.find(d => d.logicText.includes("2人気5"));
+            const row25 = wakurenResult.list ? wakurenResult.list.find(d => d.logicText && d.logicText.includes("2人気5")) : null;
             const pair25 = row25 ? row25.pair : "";
             addHighlight(pair25);
             resultHtml += `【2人気5番目】 <span style="color:blue; font-weight:bold;">${pair25}</span><br>`;
@@ -2630,10 +2774,10 @@ function extractBuy() {
     }
 
     // ▼ 2人気6番目
-    if (isCondChecked("ninki2_6") && typeof extractNinki2_6Buy === "function") {
+    if (typeof isCondChecked === "function" && isCondChecked("ninki2_6") && typeof extractNinki2_6Buy === "function") {
         const n26 = extractNinki2_6Buy(wakurenResult, umatan, tanfuku);
         if (n26) {
-            const row26 = wakurenResult.list.find(d => d.logicText.includes("2人気6"));
+            const row26 = wakurenResult.list ? wakurenResult.list.find(d => d.logicText && d.logicText.includes("2人気6")) : null;
             const pair26 = row26 ? row26.pair : "";
             addHighlight(pair26);
             resultHtml += `【2人気6番目】 <span style="color:blue; font-weight:bold;">${pair26}</span><br>`;
@@ -2642,26 +2786,28 @@ function extractBuy() {
     }
 
     // 抽出買い目が一つもない場合
-    if (!resultHtml) {
+    const isNoBuy = !resultHtml.trim();
+    if (isNoBuy) {
         resultHtml = "該当する買い目はありません。";
     }
 
     // ▼ 1. 結果を画面（DOM）に反映させる
-    document.getElementById("buyResult").innerHTML = resultHtml;
+    if (buyResultEl) buyResultEl.innerHTML = resultHtml;
 
-    // ▼ 2. 点数計算（全ての「馬番-馬番」形式を拾って集計）
-    const allPairs = [...resultHtml.matchAll(/\b\d{1,2}-\d{1,2}\b/g)].map(m => m[0]);
-    const totalCount = allPairs.length;
+    // ▼ 2. 点数計算（「馬番-馬番 (オッズ)」の形式パターンのみ抽出し重複なく点数カウント）
+    const matchedUmatanPairs = [...resultHtml.matchAll(/\b\d{1,2}-\d{1,2}\b(?=\s*\()/g)].map(m => m[0]);
+    const totalCount = matchedUmatanPairs.length;
 
     // ▼ 3. 点数を画面に表示
-    document.getElementById("buyCount").innerText = resultHtml.includes("該当する買い目") ? "" : `馬単抽出：${totalCount} 点`;
+    if (buyCountEl) {
+        buyCountEl.innerText = isNoBuy ? "" : `馬単抽出：${totalCount} 点`;
+    }
 
     // ▼ 4. 結果エリアを表示
-    document.getElementById("buyResultArea").classList.remove("hidden");
+    if (buyResultAreaEl) buyResultAreaEl.classList.remove("hidden");
 
     // ▼ 5. 枠連テーブルの再描画（ハイライト適用）
     if (typeof renderWakurenTable === "function") {
-        // ID指定に合わせて描画（"wakurenArea" または "outW" のうち環境に合う方）
         const targetId = document.getElementById("wakurenArea") ? "wakurenArea" : "outW";
         renderWakurenTable(targetId, wakurenResult);
     }
