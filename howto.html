@@ -95,6 +95,12 @@
       color: #92400e;
     }
 
+    .note.blue {
+      background: var(--primary-light);
+      border-left-color: var(--primary);
+      color: #1e40af;
+    }
+
     ol.steps {
       list-style: none;
       counter-reset: step;
@@ -214,6 +220,22 @@
       text-align: center;
     }
 
+    .bet-types {
+      display: inline-flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-top: 0.25rem;
+    }
+
+    .bet-tag {
+      background: var(--primary);
+      color: white;
+      font-size: 0.8rem;
+      font-weight: 700;
+      padding: 0.15rem 0.65rem;
+      border-radius: 9999px;
+    }
+
     @media (max-width: 640px) {
       body { padding: 1rem 0.75rem; }
       .card { padding: 1.25rem; }
@@ -234,7 +256,15 @@
       <h2><span class="icon">📖</span>はじめに</h2>
       <p><strong>【てきちゅーる】</strong>はボタンをクリックするだけで簡単に馬券が当たる（的中する）ツールです。</p>
       <p>〇 PC & スマホ対応版です。</p>
-      <p>〇 枠連オッズをベースに解析し馬単を抽出するプログラムとなっています。</p>
+      <p>〇 枠連オッズをベースに解析し<strong>馬単・3連複</strong>を抽出するプログラムとなっています。</p>
+      <div class="note blue">
+        ☆ 買い目抽出は
+        <span class="bet-types">
+          <span class="bet-tag">馬単</span>
+          <span class="bet-tag">3連複</span>
+        </span>
+        に対応しています。
+      </div>
       <p>〇 最終オッズをベースに組み立てていますので、発走時間に近い程、精度が上がります。</p>
       <div class="note">
         ※ 14頭～16頭立てのレースに対応（それら以外のレースも枠連発売があるレースには使える）
@@ -246,6 +276,9 @@
       <ol class="steps">
         <li>
           <strong>CNAME取得</strong>のリンクを開いてCNAMEを取得します。別窓で「CNAME取得ツール」へ移動。
+          <div class="note">
+            3連複の買い目を抽出する場合は<strong>「CNAME3連複」</strong>のリンクから別窓で「CNAME取得ツール（3連複対応）」へ移動。
+          </div>
           <div class="note">
             ☆「CNAME取得ツール」とは、JRA公式より各券種オッズと馬データをリアルタイムで取得するツールです。
           </div>
@@ -273,7 +306,10 @@
         <li>
           <kbd>買い目抽出</kbd>をクリック。買い目に該当した枠連組み合わせが<strong>黄色にハイライト</strong>されます。
           <div class="note">
-            ※ 枠連組み合わせに該当する馬単が抽出されます。「買い目抽出 結果 買い目合計：」の個所を確認してください。
+            ※1. 枠連組み合わせに該当する馬単または3連複が抽出されます。「買い目抽出 結果 買い目合計：」の個所を確認してください。
+          </div>
+          <div class="note">
+            ※2. オッズを取得できないなどのエラーが出た時は、再度<kbd>オッズ更新</kbd>ボタンをクリックしてください。
           </div>
         </li>
       </ol>
@@ -301,8 +337,8 @@
 
     <section class="card">
       <h2><span class="icon">🔄</span>プログラムの更新</h2>
-      <p>現在は <strong>Ver.3</strong> です。</p>
-      <p>Ver.3 更新（アップデート）2026 8/14</p>
+      <p>現在は <strong>Ver.3.5</strong> です。</p>
+      <p>Ver.3.5 更新（アップデート）2026 8/26</p>
       <span class="update-badge">今後のアップデート予定あり??</span>
     </section>
 
