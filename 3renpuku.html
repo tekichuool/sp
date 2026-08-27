@@ -264,8 +264,8 @@ td {
             <label for="cname">CNAME（単勝・複勝 / 枠連 / 馬単 をまとめて貼る）</label>
             <textarea id="cname" placeholder="pw151... pw153... pw156..."></textarea>
             <div class="note">
-                            ・ <a href="https://tekichuool.github.io/sp/">HOME</a>　│　<a href="https://tekichuool.github.io/sp/cname3.html">CNAME3連複</a>　│　<a href="https://www.jra.go.jp/">JRA公式 PC</a>　│　<a href="https://sp.jra.jp/">JRA公式スマホ</a>　│　<a href="https://tekichuool.github.io/sp/howto.html">てきちゅーるの使い方</a><br>
-                ・Ver.3.5　│　★ 3連複専用ページ<br>
+                            ・ <a href="https://tekichuool.github.io/sp/cname.html">CNAME取得</a>　│　<a href="https://tekichuool.github.io/sp/cname3.html">CNAME3連複</a>　│　<a href="https://www.jra.go.jp/">JRA公式 PC</a>　│　<a href="https://sp.jra.jp/">JRA公式スマホ</a>　│　<a href="https://tekichuool.github.io/sp/howto.html">てきちゅーるの使い方</a><br>
+                ・Ver.3 <br>
             </div>
         </div>
     </div>
@@ -290,6 +290,18 @@ td {
             <span id="infoUraninki" class="header-info-badge bg-red" style="display:none;"></span>
         </div>
         <div id="outW" class="flex-center-area"></div>
+
+<!-- 的中結果判定エリア -->
+    <div style="background: #fff; border: 1px solid #ddd; padding: 12px; margin-bottom: 15px; border-radius: 4px;">
+        <strong>的中結果</strong><br><br>
+        確定後の馬番を3つ選択して「結果ボタン」をクリックしてください。<br>
+        馬番選択：
+        <select id="hitH1"><option value="">--</option></select> - 
+        <select id="hitH2"><option value="">--</option></select> - 
+        <select id="hitH3"><option value="">--</option></select>
+        <button class="btn" style="margin-left: 10px; padding: 4px 12px;" onclick="checkHitResult()">結果</button>
+        <span id="hitJudgeDisplay" style="margin-left: 15px; font-weight: bold; font-size: 1.1rem;"></span>
+    </div>
 
 <!-- 買い目抽出 結果の表示エリア -->
         <div id="buyResultArea" class="hidden">
@@ -1433,6 +1445,25 @@ function normalizeMeeting(meeting) {
     return meeting.replace(/^\d+回/, "").replace(/\d+日$/, "");
 }
 
+// ============================================
+// ★ 的中結果判定エリアのリセット関数
+// ============================================
+function resetHitJudge() {
+    // 1. プルダウンの選択を未選択（"--"）に戻す
+    ['hitH1', 'hitH2', 'hitH3'].forEach(id => {
+        let sel = document.getElementById(id);
+        if (sel) sel.value = "";
+    });
+
+    // 2. 判定結果の表示（的中・ハズレ）をクリア
+    let judgeEl = document.getElementById('hitJudgeDisplay');
+    if (judgeEl) judgeEl.innerHTML = "";
+
+    // 3. 内部の判定ターゲット情報をクリア
+    window._currentHitTarget = null;
+    window._validBuyCombos = [];
+}
+
 // ================================
 // CNAME 自動判別 → GAS に送信（3連複対応版）
 // ================================
@@ -1535,6 +1566,9 @@ async function updateOdds() {
         if (inS) {
             inS.value = window._sanrenpuku.map(o => `${o.rank} ${o.pair} ${o.odds}`).join("\n");
         }
+
+        // ★★★ オッズ更新時は的中判定の状態をリセットする ★★★
+        resetHitJudge();
 
         alert("オッズを更新しました。『解析』ボタンを押してください。");
 
@@ -1740,6 +1774,7 @@ function clearAll() {
     window._highlightPairs = [];
 
     window.scrollTo(0, 0);
+    resetHitJudge();
 }
 
 // ================================
@@ -2376,7 +2411,7 @@ function isRaceOmitted(wakuren) {
 }
 
 // ==========================================================
-// 5. メイン抽出・集計エンジン
+// 5. メイン抽出・集計エンジン（結果判定組み込み版）
 // ==========================================================
 function extractBuy() {
     if (!window._wakurenResult) {
@@ -2425,24 +2460,15 @@ function extractBuy() {
         if (hasHighlight) {
             let isBaseMatched = highlights.includes(basePair);
             
-            // 縦5番目などの無関係なベースを弾くため、
-            // 「ベース自体がハイライト」であるか、あるいは
-            // 「このベースが、ハイライト（縦6）に対して有効な関係を持つベース名（縦4番目など）」である場合のみ許可する
             let isValidRelatedBase = false;
             if (!isBaseMatched) {
-                // 縦6（ハイライト）をベースとしたとき、そのターゲットに含まれているベース名（例: 縦4番目など）かどうかを判定
-                // または、縦6がターゲットに含まれていて、かつ許可するベース名リストに合致するか
                 let targetsOfHighlightBase = SANRENPUKU_MATRIX["縦6番目"] || SANRENPUKU_MATRIX[Object.keys(SANRENPUKU_MATRIX).find(k => getPairByName(k, wakurenResult, wakuren) === highlights[0])] || {};
                 
-                // より確実に：SANRENPUKU_MATRIX[baseName]の中にハイライトが含まれており、
-                // かつ、そのベースが「縦4番目ベース」などのように正当な関連ベースである場合のみ通す
                 let hasHighlightInTarget = Object.keys(SANRENPUKU_MATRIX[baseName]).some(tName => {
                     let tPair = getPairByName(tName, wakurenResult, wakuren);
                     return highlights.includes(tPair);
                 });
 
-                // 縦5番目ベースなどを明示的に除外するためのチェック（必要に応じてベース名で制限、または逆引き関係をチェック）
-                // 縦6番目がターゲットに持っているベース（1人気、縦2番目、縦4番目など）だけを許可する
                 let isTargetOfHighlight = false;
                 for (let hBaseName in SANRENPUKU_MATRIX) {
                     let hBasePair = getPairByName(hBaseName, wakurenResult, wakuren);
@@ -2575,6 +2601,7 @@ function extractBuy() {
     let finalHtml = "";
     let totalValidCount = 0;
     let recommendedBlockHtml = "";
+    let validCombosList = []; // ★的中判定用のリスト
 
     topCombos.forEach(comboKey => {
         let parts = comboKey.split("-");
@@ -2597,8 +2624,16 @@ function extractBuy() {
                         totalValidCount++;
                         let comboStr = [h1, h2, h3].sort((a, b) => a - b).join("-");
                         
-                        let styledComboStr = `<span style="color: #2b6cb0; font-weight: bold;">${comboStr.padEnd(10, ' ')}</span>`;
-                        tempLines += `${styledComboStr} (${odds.toFixed(1)})<br>`;
+                        validCombosList.push(comboStr); // 有効な組み合わせを蓄積
+
+                        // 的中対象の組み合わせに一致するかどうかで色を変更
+                        let isThisMatched = (window._currentHitTarget === comboStr);
+                        let fontColor = isThisMatched ? "red" : "#2b6cb0";
+                        let fontWeight = isThisMatched ? "bold" : "bold";
+                        let hitSuffix = isThisMatched ? " ← 的中" : "";
+                        
+                        let styledComboStr = `<span style="color: ${fontColor}; font-weight: ${fontWeight};">${comboStr.padEnd(10, ' ')}</span>`;
+                        tempLines += `${styledComboStr} (${odds.toFixed(1)})${hitSuffix}<br>`;
 
                         if (totalValidCount % 10 === 0) {
                             let padDash = "-".repeat(27);
@@ -2613,6 +2648,11 @@ function extractBuy() {
             recommendedBlockHtml += blockLines + tempLines;
         }
     });
+
+    // 判定用にグローバルへ保存
+    window._validBuyCombos = validCombosList;
+    // プルダウンを初期化して1〜18を選択可能にする
+    initHitSelectors();
 
     if (recommendedBlockHtml) {
         finalHtml = `<div style="background: #f9f9f9; border: 1px solid #ccc; padding: 12px; margin-bottom: 15px; border-radius: 4px; font-family: monospace; font-size: 1.1rem; line-height: 1.6;">` +
@@ -2660,6 +2700,97 @@ function extractBuy() {
         const targetId = document.getElementById("wakurenArea") ? "wakurenArea" : "outW";
         renderWakurenTable(targetId, wakurenResult);
     }
+}
+
+// ============================================
+// ★ 的中結果判定用の補助関数
+// ============================================
+
+// 1〜18の馬番プルダウンを初期化・構築する関数
+function initHitSelectors() {
+    ['hitH1', 'hitH2', 'hitH3'].forEach(id => {
+        let sel = document.getElementById(id);
+        if (!sel) return;
+        let currentVal = sel.value;
+        sel.innerHTML = '<option value="">--</option>';
+        for (let i = 1; i <= 18; i++) {
+            let opt = document.createElement('option');
+            opt.value = i;
+            opt.innerText = i;
+            if (String(i) === currentVal) opt.selected = true;
+            sel.appendChild(opt);
+        }
+    });
+}
+
+// 「結果」ボタンをクリックしたときの判定処理
+function checkHitResult() {
+    let h1 = document.getElementById('hitH1').value;
+    let h2 = document.getElementById('hitH2').value;
+    let h3 = document.getElementById('hitH3').value;
+    let judgeEl = document.getElementById('hitJudgeDisplay');
+
+    if (!h1 || !h2 || !h3) {
+        alert("3つの馬番をすべて選択してください。");
+        return;
+    }
+
+    // 選択された馬番を昇順ソートしてキー化 (例: "3-8-14")
+    let selectedCombo = [Number(h1), Number(h2), Number(h3)].sort((a, b) => a - b).join("-");
+
+    // 抽出された有効な組み合わせリストに含まれているか判定
+    let validCombos = window._validBuyCombos || [];
+    let isMatched = validCombos.includes(selectedCombo);
+
+    if (isMatched) {
+        judgeEl.innerHTML = `<span style="color: red;">的中：${selectedCombo}</span>`;
+    } else {
+        judgeEl.innerHTML = `<span style="color: blue;">ハズレ</span>`;
+    }
+
+    // 判定状態を保持して再描画（買い目一覧の該当部分を赤字にするため）
+    window._currentHitTarget = isMatched ? selectedCombo : null;
+    if (typeof extractBuy === "function" && window._wakurenResult) {
+        // 再描画を安全に行うため、内部ロジックを再実行してハイライトを反映
+        // ※無限ループ防止のため、HTML再描画部分だけを更新するのが理想ですが、
+        //   シンプルに現在の状態のまま表示を更新したい場合はDOM書換処理を呼びます。
+        refreshBuyResultHighlight(selectedCombo, isMatched);
+    }
+}
+
+// 買い目一覧の表示から該当の組み合わせを赤文字にするハイライト補助
+function refreshBuyResultHighlight(targetCombo, isMatched) {
+    let buyResultEl = document.getElementById("buyResult");
+    if (!buyResultEl) return;
+    
+    // すでに描画されているテキスト内から該当の組み合わせ文字列を探してスタイルを変更
+    // （完全版のループ内で自動的に window._currentHitTarget を参照して色分けされるよう組み込んでいます）
+    extractBuy(); // 再計算・再描画
+    let judgeEl = document.getElementById('hitJudgeDisplay');
+    if (judgeEl) {
+        if (isMatched) {
+            judgeEl.innerHTML = `<span style="color: red;">的中：${targetCombo}</span>`;
+        } else {
+            judgeEl.innerHTML = `<span style="color: blue;">ハズレ</span>`;
+        }
+    }
+}
+
+// 的中判定エリアや選択状態を完全にクリアする関数
+function resetHitJudge() {
+    // 1. プルダウンの選択を未選択（"--"）に戻す
+    ['hitH1', 'hitH2', 'hitH3'].forEach(id => {
+        let sel = document.getElementById(id);
+        if (sel) sel.value = "";
+    });
+
+    // 2. 判定結果の表示（的中・ハズレ）をクリア
+    let judgeEl = document.getElementById('hitJudgeDisplay');
+    if (judgeEl) judgeEl.innerHTML = "";
+
+    // 3. 内部の判定ターゲット情報をクリア
+    window._currentHitTarget = null;
+    window._validBuyCombos = [];
 }
 
 // ============================================
