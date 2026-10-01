@@ -1317,7 +1317,7 @@ function extractTateUra7Buy(wakurenResult, umatan, tanfuku) {
 
 const NINKI2_3_CONFIG = {
     waku1OddsRange: { min: 2.9, max: 8.6 },  // 枠連1人気のオッズ範囲
-    waku2OddsRange: { min: 4.7, max: 8.3 },  // 枠連2人気のオッズ範囲
+    waku2OddsRange: { min: 4.7, max: 9.4 },  // 枠連2人気のオッズ範囲
     oddsRange: {
         4:  [9.0, 17.5],
         5:  [12.0, 16.5],
@@ -2113,7 +2113,7 @@ function isCondChecked(val) {
 }
 
 // ==========================================================
-// ★ 馬番組み合わせ単勝人気フィルター定義
+// ★ 馬番組み合わせ単勝人気フィルター定義 & 判定関数
 // ==========================================================
 const TANKO_FILTER_RULES = {
     "1人気": [
@@ -2215,7 +2215,7 @@ const TANKO_FILTER_RULES = {
         { baseRank: 2, targetRanks: [4,5,6,7] },
         { baseRank: 3, targetRanks: [5,6,7,8,9] },
         { baseRank: 4, targetRanks: [5,6,12,13,14] },
-        { baseRank: 5, targetRanks: [6,7,8] },
+        { baseRank: 5, targetRanks: [6,7,8,12,13,14] },
         { baseRank: 6, targetRanks: [7,8] }
     ],
     "2人気4番目": [
@@ -2238,36 +2238,55 @@ function getTanfukuRankByHorse(horseNum, horseList) {
     return found && found.rank !== undefined ? Number(found.rank) : null;
 }
 
-function checkTankoFilter(baseName, basePair, horseList) {
+function isValidHorsePair(h1, h2, baseName, horseList) {
     const rules = TANKO_FILTER_RULES[baseName];
     if (!rules) return true;
 
-    let parts = basePair.split("-");
-    if (parts.length < 2) return true;
+    let r1 = getTanfukuRankByHorse(h1, horseList);
+    let r2 = getTanfukuRankByHorse(h2, horseList);
 
-    let horses1 = getHorsesByWaku(parts[0], horseList);
-    let horses2 = getHorsesByWaku(parts[1], horseList);
+    if (r1 === null || r2 === null) return false;
 
-    for (let h1 of horses1) {
-        for (let h2 of horses2) {
-            let r1 = getTanfukuRankByHorse(h1, horseList);
-            let r2 = getTanfukuRankByHorse(h2, horseList);
-
-            if (r1 === null || r2 === null) continue;
-
-            for (let rule of rules) {
-                if ((r1 === rule.baseRank && rule.targetRanks.includes(r2)) ||
-                    (r2 === rule.baseRank && rule.targetRanks.includes(r1))) {
-                    return true;
-                }
-            }
+    for (let rule of rules) {
+        if ((r1 === rule.baseRank && rule.targetRanks.includes(r2)) ||
+            (r2 === rule.baseRank && rule.targetRanks.includes(r1))) {
+            return true;
         }
     }
     return false;
 }
 
+function getFilteredHorsePair(basePair, baseName, horseList) {
+    let parts = basePair.split("-");
+    if (parts.length < 2) return { horses1: [], horses2: [], validPairs: [] };
+
+    let raw1 = getHorsesByWaku(parts[0], horseList);
+    let raw2 = getHorsesByWaku(parts[1], horseList);
+
+    let validSet1 = new Set();
+    let validSet2 = new Set();
+    let validPairs = [];
+
+    for (let h1 of raw1) {
+        for (let h2 of raw2) {
+            if (parts[0] === parts[1] && h1 === h2) continue;
+            if (isValidHorsePair(h1, h2, baseName, horseList)) {
+                validSet1.add(h1);
+                validSet2.add(h2);
+                validPairs.push([h1, h2]);
+            }
+        }
+    }
+
+    return {
+        horses1: Array.from(validSet1).sort((a, b) => a - b),
+        horses2: Array.from(validSet2).sort((a, b) => a - b),
+        validPairs: validPairs
+    };
+}
+
 // ==========================================================
-// 1. 設定データ（ベースと相手の関係・出現ポイントスコア）
+// 1. 設定データ
 // ==========================================================
 const SANRENPUKU_MATRIX = {
     "1人気": {
@@ -2375,23 +2394,49 @@ const SANRENPUKU_MATRIX = {
     }
 };
 
+/**
+ * 枠連ベーススコア加算定義オブジェクト
+ */
+// 手動設定の枠連ベースポイント
 const BASE_TOTAL_POINTS = {
-    "1人気": 5,
-    "2人気": 4,
+    "1人気": 5, "2人気": 4, "3人気": 4, "縦2番目": 3, "縦3番目": 3,
+    "裏3番目": 2, "縦4番目": 2, "裏4番目": 4, "縦5番目": 2, "裏5番目": 2,
+    "縦6番目": 1, "裏6番目": 1, "縦7番目": 1, "裏7番目": 1, "2人気3番目": 1, "2人気4番目": 1
+};
+
+// 期待値分析に基づく枠連ベース加算スコア（3連複期待値ベース）
+const EXPECTED_VALUE_BASE_POINTS = {
+    // 【5pt : 期待値 1,400円以上】
+    "縦7番目": 5,
+    "2人気": 5,
+    "裏4番目": 5,
+
+    // 【4pt : 期待値 1,100円〜1,399円】
+    "2人気4番目": 4,
+    "裏5番目": 4,
     "3人気": 4,
+
+    // 【3pt : 期待値 800円〜1,099円】
+    "2人気3番目": 3,
+    "縦6番目": 3,
+    "縦5番目": 3,
     "縦2番目": 3,
-    "縦3番目": 3,
-    "裏3番目": 2,
+    "枠2番目": 3,
+    "1人気": 3,
+    "縦8番目": 3,
+
+    // 【2pt : 期待値 500円〜799円】
+    "裏7番目": 2,
+    "縦3番目": 2,
     "縦4番目": 2,
-    "裏4番目": 4,
-    "縦5番目": 2,
-    "裏5番目": 2,
-    "縦6番目": 1,
+    "裏3番目": 2,
+    "2人気5番目": 2,
+
+    // 【1pt : 期待値 500円未満】
     "裏6番目": 1,
-    "縦7番目": 1,
-    "裏7番目": 1,
-    "2人気3番目": 1,
-    "2人気4番目": 1
+    "裏8番目": 1
+    
+    // ※ 枠8番目（全体）, 2人気6番目はサンプル数低下のため除外
 };
 
 // ==========================================================
@@ -2406,7 +2451,6 @@ function createSanrenpukuWaku(basePair, targetPair) {
     if (combined.length !== 3) return null;
     
     let remaining = combined.filter(n => !baseSet.includes(n));
-    
     if (remaining.length > 0) {
         return `${basePair}-${remaining[0]}`;
     } else {
@@ -2415,27 +2459,140 @@ function createSanrenpukuWaku(basePair, targetPair) {
 }
 
 // ==========================================================
-// 3. スコア加算モジュール
+// 3. スコア加算モジュール（統合・一元管理版）
 // ==========================================================
 const ScoreCalculator = {
-    calculate: function(combo, baseName, targetName) {
-        let relationPoint = 0;
-        if (SANRENPUKU_MATRIX[baseName] && SANRENPUKU_MATRIX[baseName][targetName]) {
-            relationPoint = SANRENPUKU_MATRIX[baseName][targetName].point;
+    /**
+     * 【1】枠連ベース単体の点数（ベーススコア）を算出
+     * @param {Object|string} ctx - 計算文脈オブジェクト（{ baseName: "1人気", useExpectedValue: true }）または文字列
+     * @returns {number} ベーススコア
+     */
+    calculateBaseScore: function(ctx) {
+        let baseName = "";
+        let useExpectedValue = true;
+
+        if (typeof ctx === "string") {
+            baseName = ctx;
+        } else if (ctx && typeof ctx === "object") {
+            baseName = ctx.baseName || "";
+            if (ctx.useExpectedValue !== undefined) {
+                useExpectedValue = ctx.useExpectedValue;
+            }
         }
 
-        let basePoint = BASE_TOTAL_POINTS[baseName] || 0;
+        if (!baseName) return 0;
+
+        let score = 0;
+
+        // 手動基準のベースポイント加算
+        if (typeof BASE_TOTAL_POINTS !== "undefined" && BASE_TOTAL_POINTS[baseName] !== undefined) {
+            score += BASE_TOTAL_POINTS[baseName];
+        }
+
+        // 期待値基準のベースポイント加算
+        if (useExpectedValue && typeof EXPECTED_VALUE_BASE_POINTS !== "undefined" && EXPECTED_VALUE_BASE_POINTS[baseName] !== undefined) {
+            score += EXPECTED_VALUE_BASE_POINTS[baseName];
+        }
+
+        return score;
+    },
+
+    /**
+     * 【2】枠連組み合わせ・相関による動的スコアルール一覧
+     */
+    comboRules: [
+        {
+            name: "マトリックス相関点",
+            getScore: (ctx) => {
+                // ベース条件名と相手条件名の相関ポイント(SANRENPUKU_MATRIX)を取得
+                if (typeof SANRENPUKU_MATRIX !== "undefined" && SANRENPUKU_MATRIX[ctx.baseName] && SANRENPUKU_MATRIX[ctx.baseName][ctx.targetName]) {
+                    return SANRENPUKU_MATRIX[ctx.baseName][ctx.targetName].point || 0;
+                }
+                return 0;
+            }
+        },
+        {
+            name: "ハイライト枠連一致加算",
+            getScore: (ctx) => {
+                if (!ctx.highlights || ctx.highlights.length === 0 || !ctx.sanrenpukuWaku) return 0;
+                
+                // sanrenpukuWaku (例: "2-5-7") の中にハイライトされた枠連ペアが含まれるかチェック
+                const wakuParts = ctx.sanrenpukuWaku.split("-");
+                if (wakuParts.length < 3) return 0;
+                
+                // 3つの枠から作れる2枠ペア（2-5, 2-7, 5-7）を作成
+                const pairsInWaku = [
+                    `${wakuParts[0]}-${wakuParts[1]}`,
+                    `${wakuParts[0]}-${wakuParts[2]}`,
+                    `${wakuParts[1]}-${wakuParts[2]}`
+                ].map(p => p.split("-").sort((a, b) => a - b).join("-"));
+
+                // ハイライトされているペアのいずれかが含まれていれば +5点
+                const isMatched = pairsInWaku.some(pair => {
+                    return ctx.highlights.some(h => {
+                        const sortedH = h.split("-").sort((a, b) => a - b).join("-");
+                        return sortedH === pair;
+                    });
+                });
+
+                return isMatched ? 5 : 0;
+            }
+        }
+    ],
+
+    /**
+     * 【3】組み合わせスコアの集計処理
+     * @param {Object} ctx - 計算文脈
+     * @returns {Object} { total: 合計点, breakdown: 内訳リスト }
+     */
+    calculateComboScore: function(ctx) {
+        let total = 0;
+        let breakdown = [];
+
+        if (Array.isArray(this.comboRules)) {
+            this.comboRules.forEach(rule => {
+                const score = rule.getScore(ctx);
+                if (score > 0) {
+                    total += score;
+                    breakdown.push(`${rule.name}: +${score}`);
+                }
+            });
+        }
+
+        return { total, breakdown };
+    },
+
+    /**
+     * 【4】統合計算関数（ベース点と組み合わせ点を算出して個別に返却）
+     * @param {Object} ctx - 計算文脈
+     * @returns {Object} { baseScore, comboScore, totalScore, breakdown }
+     */
+    calculate: function(ctx) {
+        // ベーススコアの算出
+        const baseScore = this.calculateBaseScore(ctx);
+        
+        // 組み合わせスコアの算出
+        const comboRes = this.calculateComboScore(ctx);
+        const comboScore = comboRes.total;
+
+        // 合計スコア
+        const totalScore = baseScore + comboScore;
+
+        let breakdown = [];
+        if (baseScore > 0) breakdown.push(`ベース基本点(${ctx.baseName}): +${baseScore}`);
+        breakdown = breakdown.concat(comboRes.breakdown);
 
         return {
-            total: relationPoint + basePoint,
-            relation: relationPoint,
-            base: basePoint
+            baseScore,
+            comboScore,
+            totalScore,
+            breakdown
         };
     }
 };
 
 // ==========================================================
-// 4. 各条件名から対応する枠番ペアを取得するヘルパー（裏5・裏6僅差相互抽出組み込み版）
+// 4. 各条件名から対応する枠番ペアを取得するヘルパー
 // ==========================================================
 function getPairByName(name, wakurenResult, wakuren) {
     if (name === "1人気") return wakuren[0] ? wakuren[0].pair : null;
@@ -2444,33 +2601,11 @@ function getPairByName(name, wakurenResult, wakuren) {
 
     const list = wakurenResult.list || [];
 
-    // ★ 裏5・裏6の僅差（0.3以内）判定と相互抽出ロジック
-    if (name === "裏5番目" || name === "裏6番目") {
-        const u5Row = list.find(d => d.logicText && d.logicText.includes("裏5"));
-        const u6Row = list.find(d => d.logicText && d.logicText.includes("裏6"));
-
-        if (u5Row && u6Row) {
-            const o5 = parseFloat(u5Row.odds);
-            const o6 = parseFloat(u6Row.odds);
-
-            if (!isNaN(o5) && !isNaN(o6) && Math.abs(o5 - o6) <= 0.3) {
-                // オッズ差が0.3以内の場合、対象に応じて相手方のペアを返す
-                if (name === "裏5番目") return u6Row.pair;
-                if (name === "裏6番目") return u5Row.pair;
-            }
-        }
-    }
-
     let searchKey = "";
-
     if (name.startsWith("縦")) {
         searchKey = name.replace("番目", "");
     } else if (name.startsWith("裏")) {
         searchKey = name.replace("人気", "").replace("番目", "");
-        
-        if (name === "裏3番目") {
-            // 必要に応じて除外条件
-        }
     } else if (name.startsWith("2人気")) {
         searchKey = name;
     }
@@ -2479,12 +2614,9 @@ function getPairByName(name, wakurenResult, wakuren) {
     return matchedRow ? matchedRow.pair : null;
 }
 
-// ================================
-// --- 除外レース判定関数 ---
-// ================================
+// 1人気・2人気のいずれかがゾロ目の場合に見送る判定関数
 function isRaceOmitted(wakuren) {
     if (!wakuren || wakuren.length < 2) return false;
-
     const pair1 = wakuren[0].pair;
     const pair2 = wakuren[1].pair;
 
@@ -2493,12 +2625,11 @@ function isRaceOmitted(wakuren) {
         const [a, b] = p.split("-");
         return a === b;
     };
-
     return isZorome(pair1) || isZorome(pair2);
 }
 
 // ==========================================================
-// 5. メイン抽出・集計エンジン（結果判定組み込み版）
+// 5. メイン抽出・集計エンジン（枠連スコア順ベースで馬番展開）
 // ==========================================================
 function extractBuy() {
     if (!window._wakurenResult) {
@@ -2530,8 +2661,8 @@ function extractBuy() {
         return;
     }
 
-    let scoreMap = {};      
-    let detailMap = {};     
+    let wakuScoreMap = {};         // 各3連複枠の合計スコア保持用
+    let wakuDetailsMap = {};       // 明細データ保持用
     let resultHtml = "";
 
     let seenPairs = new Set();
@@ -2540,17 +2671,15 @@ function extractBuy() {
     const highlights = window._highlightPairs;
     const hasHighlight = highlights && highlights.length > 0;
 
+    // --- 活性化ベースの抽出 ---
     for (let baseName in SANRENPUKU_MATRIX) {
         let basePair = getPairByName(baseName, wakurenResult, wakuren);
         if (!basePair) continue;
 
         if (hasHighlight) {
             let isBaseMatched = highlights.includes(basePair);
-            
             let isValidRelatedBase = false;
             if (!isBaseMatched) {
-                let targetsOfHighlightBase = SANRENPUKU_MATRIX["縦6番目"] || SANRENPUKU_MATRIX[Object.keys(SANRENPUKU_MATRIX).find(k => getPairByName(k, wakurenResult, wakuren) === highlights[0])] || {};
-                
                 let hasHighlightInTarget = Object.keys(SANRENPUKU_MATRIX[baseName]).some(tName => {
                     let tPair = getPairByName(tName, wakurenResult, wakuren);
                     return highlights.includes(tPair);
@@ -2567,36 +2696,33 @@ function extractBuy() {
                         }
                     }
                 }
-
                 isValidRelatedBase = hasHighlightInTarget && isTargetOfHighlight;
             }
-
-            if (!isBaseMatched && !isValidRelatedBase) {
-                continue;
-            }
+            if (!isBaseMatched && !isValidRelatedBase) continue;
         }
 
-        if (seenPairs.has(basePair)) {
-            continue;
-        }
+        if (seenPairs.has(basePair)) continue;
         seenPairs.add(basePair);
         activeBases[baseName] = basePair;
     }
 
+    // --- ベースごとのループ ---
     for (let baseName in activeBases) {
         let basePair = activeBases[baseName];
-        
-        if (!checkTankoFilter(baseName, basePair, horseList)) {
-            continue;
-        }
+        let filteredBase = getFilteredHorsePair(basePair, baseName, horseList);
+        if (filteredBase.validPairs.length === 0) continue;
 
         let targets = SANRENPUKU_MATRIX[baseName];
-        let horsePairDisplayStr = getHorsePairDisplay(basePair, horseList);
+        let horsePairDisplayStr = `${filteredBase.horses1.join("・")} - ${filteredBase.horses2.join("・")}`;
         let baseSectionHtml = `<strong>【${baseName}ベース (${basePair})】</strong> 馬番：${horsePairDisplayStr}<br>`;
         let hasHit = false;
 
-        let seenWakuInBase = new Set();
+        // 同一ベース内での同一3連複枠への重複加算制御用Set
+        let seenWakuInBase = new Set(); 
+        // 同一ベース内でベーススコアが重複加算されるのを防ぐ制御用Set
+        let seenBaseScoreForWaku = new Set();
 
+        // --- 1. 通常マトリックスからのターゲット抽出 ---
         for (let targetName in targets) {
             let targetPair = getPairByName(targetName, wakurenResult, wakuren);
 
@@ -2604,76 +2730,168 @@ function extractBuy() {
                 if (hasHighlight) {
                     let isBaseMatched = highlights.includes(basePair);
                     let isTargetMatched = highlights.includes(targetPair);
-
-                    if (isBaseMatched) {
-                        // パターンA: 縦6ベースのときはすべてのターゲットOK
-                    } else {
-                        // パターンB: 別ベースのときは、相手（ターゲット）がハイライト（縦6）であるものだけを許可
-                        if (!isTargetMatched) {
-                            continue;
-                        }
-                    }
+                    if (!isBaseMatched && !isTargetMatched) continue;
                 }
 
                 if (targetName === "裏3番目") {
                     let ura3NinkiPair = getPairByName("裏3人気", wakurenResult, wakuren);
-                    if (ura3NinkiPair && ura3NinkiPair === targetPair) {
-                        continue;
-                    }
+                    if (ura3NinkiPair && ura3NinkiPair === targetPair) continue;
                 }
 
                 let sanrenpukuWaku = createSanrenpukuWaku(basePair, targetPair);
                 if (sanrenpukuWaku) {
                     hasHit = true;
-                    
-                    let scoreDetails = ScoreCalculator.calculate(sanrenpukuWaku, baseName, targetName);
-                    let finalScore = scoreDetails.total;
 
-                    let wakuNums = sanrenpukuWaku.split("-").map(Number).sort((a, b) => a - b);
-                    let normalizedKey = wakuNums.join("-");
+                    // 正規化キー（例: "2-5-7"）
+                    let normalizedWakuKey = sanrenpukuWaku.split("-").map(Number).sort((a, b) => a - b).join("-");
 
-                    if (seenWakuInBase.has(normalizedKey)) {
-                        finalScore = 0;
-                    } else {
-                        seenWakuInBase.add(normalizedKey);
-                    }
-
-                    scoreMap[normalizedKey] = (scoreMap[normalizedKey] || 0) + finalScore;
-
-                    if (!detailMap[normalizedKey]) {
-                        detailMap[normalizedKey] = [];
-                    }
-                    detailMap[normalizedKey].push({
-                        wakuStr: sanrenpukuWaku,
-                        score: finalScore,
+                    // スコアの個別計算文脈オブジェクト作成
+                    const calcCtx = {
+                        sanrenpukuWaku: sanrenpukuWaku,
                         baseName: baseName,
-                        targetName: targetName
+                        targetName: targetName,
+                        basePair: basePair,
+                        targetPair: targetPair,
+                        highlights: highlights
+                    };
+
+                    // スコア計算（ベース点と組み合わせ点を分離取得）
+                    let baseScore = ScoreCalculator.calculateBaseScore(calcCtx);
+                    let comboScore = ScoreCalculator.calculateComboScore(calcCtx).total;
+
+                    // 1つの枠グループに対する「ベース点数」は最初の一度のみ加算
+                    if (seenBaseScoreForWaku.has(normalizedWakuKey)) {
+                        baseScore = 0; 
+                    } else {
+                        seenBaseScoreForWaku.add(normalizedWakuKey);
+                    }
+
+                    // 重複検出（同一ベース内で同じ相手枠ペアを引いた場合の組み合わせ点制御）
+                    if (seenWakuInBase.has(normalizedWakuKey)) {
+                        comboScore = 0;
+                    } else {
+                        seenWakuInBase.add(normalizedWakuKey);
+                    }
+
+                    // 合計加算ポイント
+                    let addedScore = baseScore + comboScore;
+
+                    wakuScoreMap[normalizedWakuKey] = (wakuScoreMap[normalizedWakuKey] || 0) + addedScore;
+
+                    let tParts = targetPair.split("-");
+                    let targetWakuNum = (tParts[0] !== basePair.split("-")[0] && tParts[0] !== basePair.split("-")[1]) ? tParts[0] : tParts[1];
+                    let targetHorses = getHorsesByWaku(targetWakuNum, horseList);
+
+                    if (!wakuDetailsMap[normalizedWakuKey]) {
+                        wakuDetailsMap[normalizedWakuKey] = {
+                            wakuKey: normalizedWakuKey,
+                            score: 0,
+                            details: [],
+                            horseCombos: new Set()
+                        };
+                    }
+
+                    // 明細情報に「ベース点」と「組み合わせ点」の内訳を保持
+                    wakuDetailsMap[normalizedWakuKey].details.push({
+                        type: 'normal',
+                        origWakuStr: sanrenpukuWaku,
+                        score: addedScore,
+                        baseScore: baseScore,
+                        comboScore: comboScore,
+                        baseName: baseName,
+                        targetName: targetName,
+                        basePairStr: `${filteredBase.horses1.join("・")} - ${filteredBase.horses2.join("・")}`,
+                        targetHorsesStr: targetHorses.join("・")
                     });
 
-                    baseSectionHtml += `&nbsp;&nbsp;- ${targetName} (${targetPair}) → 枠 ${sanrenpukuWaku} (スコア:+${finalScore})<br>`;
+                    filteredBase.validPairs.forEach(p => {
+                        targetHorses.forEach(th => {
+                            let combo = [p[0], p[1], th].sort((a, b) => a - b).join("-");
+                            wakuDetailsMap[normalizedWakuKey].horseCombos.add(combo);
+                        });
+                    });
+
+                    baseSectionHtml += `&nbsp;&nbsp;- ${targetName} (${targetPair}) → 枠 ${sanrenpukuWaku} (加算:+${addedScore} [ベース:${baseScore} / 相手相関:${comboScore}])<br>`;
                 }
             }
         }
 
-        if (hasHit) {
-            resultHtml += baseSectionHtml + "<br>";
-        }
+        // --- 2. ゾロ目生成枠番の抽出と「ベースグループ」への統合 ---
+        let baseWakuParts = basePair.split("-").map(Number);
+        baseWakuParts.forEach(wakuNum => {
+            let horsesInWaku = getHorsesByWaku(wakuNum, horseList);
+            if (horsesInWaku.length >= 2) {
+                hasHit = true;
+
+                let otherWaku = baseWakuParts.find(w => w !== wakuNum) || wakuNum;
+                let zoromeWakuArr = [wakuNum, wakuNum, otherWaku].sort((a, b) => a - b);
+                let zoromeWakuStr = zoromeWakuArr.join("-");
+
+                let zoromeScore = 8; // デフォルトゾロ目組み合わせスコア
+
+                for (let targetName in targets) {
+                    let targetPair = getPairByName(targetName, wakurenResult, wakuren);
+                    if (targetPair) {
+                        let mainWakuKey = createSanrenpukuWaku(basePair, targetPair);
+                        if (mainWakuKey) {
+                            let normKey = mainWakuKey.split("-").map(Number).sort((a, b) => a - b).join("-");
+                            
+                            if (wakuDetailsMap[normKey]) {
+
+                                // 二重カウント防止（既存明細に同一ゾロ目が存在するかチェック）
+                                let isAlreadyExists = wakuDetailsMap[normKey].details.some(d => {
+                                    if (!d.origWakuStr) return false;
+                                    let origKey = d.origWakuStr.split("-").map(Number).sort((a, b) => a - b).join("-");
+                                    return origKey === zoromeWakuStr;
+                                });
+
+                                if (isAlreadyExists) continue;
+
+                                let h1Str = filteredBase.horses1.join("・");
+                                let h2Str = filteredBase.horses2.join("・");
+
+                                let zoromeHorseDisplay = "";
+                                if (wakuNum === baseWakuParts[0]) {
+                                    zoromeHorseDisplay = `馬番 ${h1Str} - ${h1Str} - │ ${h2Str}`;
+                                } else {
+                                    zoromeHorseDisplay = `馬番 ${h1Str} - ${h2Str} - │ ${h2Str}`;
+                                }
+
+                                // ゾロ目スコア（組み合わせ加算分として記録）
+                                wakuDetailsMap[normKey].details.push({
+                                    type: 'zorome',
+                                    origWakuStr: zoromeWakuStr,
+                                    score: zoromeScore,
+                                    baseScore: 0,
+                                    comboScore: zoromeScore,
+                                    horseDisplayStr: zoromeHorseDisplay
+                                });
+
+                                // ゾロ目の組み合わせを馬番リストに追加
+                                for (let i = 0; i < horsesInWaku.length; i++) {
+                                    for (let j = i + 1; j < horsesInWaku.length; j++) {
+                                        let otherHorses = getHorsesByWaku(otherWaku, horseList);
+                                        otherHorses.forEach(oh => {
+                                            if (oh !== horsesInWaku[i] && oh !== horsesInWaku[j]) {
+                                                let combo = [horsesInWaku[i], horsesInWaku[j], oh].sort((a, b) => a - b).join("-");
+                                                wakuDetailsMap[normKey].horseCombos.add(combo);
+                                            }
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                baseSectionHtml += `&nbsp;&nbsp;- ゾロ目 (${wakuNum}枠) → 枠 ${zoromeWakuStr} (ゾロ目加算:+${zoromeScore})<br>`;
+            }
+        });
+
+        if (hasHit) resultHtml += baseSectionHtml + "<br>";
     }
 
-    if (!resultHtml) {
-        resultHtml = "該当する買い目はありません。";
-    }
-
-    const sortedCombos = Object.keys(scoreMap).sort((a, b) => {
-        if (scoreMap[b] !== scoreMap[a]) {
-            return scoreMap[b] - scoreMap[a];
-        }
-        return a.localeCompare(b);
-    });
-
-    const selectElem = document.getElementById("topCountSelect");
-    const limitCount = selectElem ? parseInt(selectElem.value, 10) || 30 : 30;
-    const topCombos = sortedCombos.slice(0, limitCount);
+    if (!resultHtml) resultHtml = "該当する買い目はありません。";
 
     function getSanrenpukuOdds(h1, h2, h3) {
         let targetNums = [Number(h1), Number(h2), Number(h3)].sort((a, b) => a - b).join("-");
@@ -2685,88 +2903,99 @@ function extractBuy() {
         return found ? parseFloat(found.odds) : null;
     }
 
-    let finalHtml = "";
-    let totalValidCount = 0;
-    let recommendedBlockHtml = "";
-    let validCombosList = []; // ★的中判定用のリスト
+    // 1. スコアで降順ソート
+    let sortedWakuList = Object.keys(wakuScoreMap).map(key => {
+        return {
+            wakuKey: key,
+            score: wakuScoreMap[key],
+            details: wakuDetailsMap[key] ? wakuDetailsMap[key].details : [],
+            horseCombos: wakuDetailsMap[key] ? Array.from(wakuDetailsMap[key].horseCombos) : []
+        };
+    }).sort((a, b) => b.score - a.score);
 
-    topCombos.forEach(comboKey => {
-        let parts = comboKey.split("-");
-        let hList1 = getHorsesByWaku(parts[0], horseList);
-        let hList2 = getHorsesByWaku(parts[1], horseList);
-        let hList3 = getHorsesByWaku(parts[2], horseList);
-        
-        let horseDisplayStr = `${hList1.join("・")} - ${hList2.join("・")} - ${hList3.join("・")}`;
-        
-        let blockLines = `<strong>【枠 ${comboKey}】【馬番 ${horseDisplayStr}】</strong><br>`;
-        let hasValidInThisCombo = false;
-        let tempLines = "";
-
-        hList1.forEach(h1 => {
-            hList2.forEach(h2 => {
-                hList3.forEach(h3 => {
-                    let odds = getSanrenpukuOdds(h1, h2, h3);
-                    if (odds !== null && odds < 1500.0) {
-                        hasValidInThisCombo = true;
-                        totalValidCount++;
-                        let comboStr = [h1, h2, h3].sort((a, b) => a - b).join("-");
-                        
-                        validCombosList.push(comboStr); // 有効な組み合わせを蓄積
-
-                        // 的中対象の組み合わせに一致するかどうかで色を変更
-                        let isThisMatched = (window._currentHitTarget === comboStr);
-                        let fontColor = isThisMatched ? "red" : "#2b6cb0";
-                        let fontWeight = isThisMatched ? "bold" : "bold";
-                        let hitSuffix = isThisMatched ? " ← 的中" : "";
-                        
-                        let styledComboStr = `<span style="color: ${fontColor}; font-weight: ${fontWeight};">${comboStr.padEnd(10, ' ')}</span>`;
-                        tempLines += `${styledComboStr} (${odds.toFixed(1)})${hitSuffix}<br>`;
-
-                        if (totalValidCount % 10 === 0) {
-                            let padDash = "-".repeat(27);
-                            tempLines += `${padDash} ${totalValidCount}<br>`;
-                        }
-                    }
-                });
-            });
-        });
-
-        if (hasValidInThisCombo) {
-            recommendedBlockHtml += blockLines + tempLines;
+    // 2. スコア順位（Dense Rank）の計算
+    let currentRank = 1;
+    sortedWakuList.forEach((item, index) => {
+        if (index > 0) {
+            if (item.score < sortedWakuList[index - 1].score) {
+                currentRank++;
+            }
         }
+        item.rank = currentRank;
     });
 
-    // 判定用にグローバルへ保存
-    window._validBuyCombos = validCombosList;
-    // プルダウンを初期化して1〜18を選択可能にする
-    initHitSelectors();
+    // 3. スコア上位10順位までの枠連を抽出
+    let top10WakuList = sortedWakuList.filter(item => item.rank <= 10);
 
+    // 4. 【枠連スコア順 展開表示】の生成
+    let recommendedBlockHtml = "";
+    let totalValidCount = 0;
+    let validCombosList = [];
+    let addedHorseCombos = new Set();
+
+    top10WakuList.forEach(wakuItem => {
+        let wParts = wakuItem.wakuKey.split("-");
+        let horseDisplays = wParts.map(w => {
+            let hList = getHorsesByWaku(w, horseList);
+            return hList.length > 0 ? hList.join("・") : "?";
+        });
+
+        recommendedBlockHtml += `<strong>スコア${wakuItem.rank}位 枠 ${wakuItem.wakuKey} (スコア:計${wakuItem.score}) 馬番 ${horseDisplays.join(" - ")}</strong><br><br>`;
+
+        wakuItem.horseCombos.forEach(comboKey => {
+            if (addedHorseCombos.has(comboKey)) return;
+            addedHorseCombos.add(comboKey);
+
+            let [h1, h2, h3] = comboKey.split("-").map(Number);
+            let odds = getSanrenpukuOdds(h1, h2, h3);
+
+            if (odds !== null && odds < 1500.0) {
+                totalValidCount++;
+                validCombosList.push(comboKey);
+
+                let isThisMatched = (window._currentHitTarget === comboKey);
+                let fontColor = isThisMatched ? "red" : "#2b6cb0";
+                let hitSuffix = isThisMatched ? " ← 的中" : "";
+
+                let styledComboStr = `<span style="color: ${fontColor}; font-weight: bold;">${comboKey.padEnd(10, ' ')}</span>`;
+                recommendedBlockHtml += `${styledComboStr} (${odds.toFixed(1)})${hitSuffix}<br>`;
+
+                if (totalValidCount % 10 === 0) {
+                    recommendedBlockHtml += `--------------------------- ${totalValidCount}<br>`;
+                }
+            }
+        });
+
+        recommendedBlockHtml += `<br>`;
+    });
+
+    window._validBuyCombos = validCombosList;
+    if (typeof initHitSelectors === "function") initHitSelectors();
+
+    let finalHtml = "";
     if (recommendedBlockHtml) {
         finalHtml = `<div style="background: #f9f9f9; border: 1px solid #ccc; padding: 12px; margin-bottom: 15px; border-radius: 4px; font-family: monospace; font-size: 1.1rem; line-height: 1.6;">` +
-                    `<strong>【最終おすすめ3連複（上位30点）】</strong><br><br>` +
+                    `<strong>【枠連スコア順 3連複展開表示（上位10順位）】</strong><br><br>` +
                     recommendedBlockHtml +
                     `</div>`;
     }
 
-    let scoreRankHtml = `<strong>【スコア順】</strong><br><br>`;
-    sortedCombos.forEach((comboKey, index) => {
-        let totalScore = scoreMap[comboKey];
-        let details = detailMap[comboKey] || [];
+    // 5. 【スコア詳細一覧】の生成
+    let scoreRankHtml = `<strong>【スコア詳細一覧】</strong><br><br>`;
+    sortedWakuList.forEach((wakuItem) => {
+        let wParts = wakuItem.wakuKey.split("-");
+        let horseDisplays = wParts.map(w => {
+            let hList = getHorsesByWaku(w, horseList);
+            return hList.length > 0 ? hList.join("・") : "?";
+        });
 
-        let parts = comboKey.split("-");
-        let h1 = getHorsesByWaku(parts[0], horseList).join("・");
-        let h2 = getHorsesByWaku(parts[1], horseList).join("・");
-        let h3 = getHorsesByWaku(parts[2], horseList).join("・");
-        let horseDisplayStr = `${h1} - ${h2} - ${h3}`;
-
-        scoreRankHtml += `スコア${index + 1}位 枠 ${comboKey} (スコア:計${totalScore}) 馬番 ${horseDisplayStr}<br><br>`;
-
-        details.forEach(d => {
-            let subParts = d.wakuStr.split("-");
-            let subH3 = getHorsesByWaku(subParts[2], horseList).join("・");
-            let subHorseDisplay = `${getHorsesByWaku(subParts[0], horseList).join("・")} - ${getHorsesByWaku(subParts[1], horseList).join("・")} │ - ${subH3}`;
-
-            scoreRankHtml += `&nbsp;&nbsp;枠 ${d.wakuStr} (スコア:+${d.score}) │ 馬番 ${subHorseDisplay}<br>`;
+        scoreRankHtml += `スコア${wakuItem.rank}位 枠 ${wakuItem.wakuKey} (スコア:計${wakuItem.score}) 馬番 ${horseDisplays.join(" - ")}<br><br>`;
+        wakuItem.details.forEach(d => {
+            if (d.type === 'zorome') {
+                scoreRankHtml += `&nbsp;&nbsp;枠 ${d.origWakuStr} (加算:+${d.score}) ${d.horseDisplayStr}<br>`;
+            } else {
+                scoreRankHtml += `&nbsp;&nbsp;枠 ${d.origWakuStr} (加算:+${d.score} [ベース:${d.baseScore} / 相関:${d.comboScore}]) │ 馬番 ${d.basePairStr} │ - ${d.targetHorsesStr}<br>`;
+            }
         });
         scoreRankHtml += `<br>`;
     });
@@ -2775,13 +3004,11 @@ function extractBuy() {
         buyResultEl.innerHTML = finalHtml + scoreRankHtml + `<br><strong>【ベース別詳細とスコア換算】</strong><br><br>` + resultHtml;
     }
     if (buyCountEl) {
-        buyCountEl.innerText = totalValidCount === 0 ? "" : `3連複抽出（総候補数）：${totalValidCount} 点`;
+        buyCountEl.innerText = totalValidCount === 0 ? "" : `3連複抽出（総点数）：${totalValidCount} 点`;
     }
     
     const buyResultArea = document.getElementById("buyResultArea");
-    if (buyResultArea) {
-        buyResultArea.classList.remove("hidden");
-    }
+    if (buyResultArea) buyResultArea.classList.remove("hidden");
 
     if (typeof renderWakurenTable === "function") {
         const targetId = document.getElementById("wakurenArea") ? "wakurenArea" : "outW";
@@ -2792,8 +3019,6 @@ function extractBuy() {
 // ============================================
 // ★ 的中結果判定用の補助関数
 // ============================================
-
-// 1〜18の馬番プルダウンを初期化・構築する関数
 function initHitSelectors() {
     ['hitH1', 'hitH2', 'hitH3'].forEach(id => {
         let sel = document.getElementById(id);
@@ -2810,7 +3035,6 @@ function initHitSelectors() {
     });
 }
 
-// 「結果」ボタンをクリックしたときの判定処理
 function checkHitResult() {
     let h1 = document.getElementById('hitH1').value;
     let h2 = document.getElementById('hitH2').value;
@@ -2822,10 +3046,7 @@ function checkHitResult() {
         return;
     }
 
-    // 選択された馬番を昇順ソートしてキー化 (例: "3-8-14")
     let selectedCombo = [Number(h1), Number(h2), Number(h3)].sort((a, b) => a - b).join("-");
-
-    // 抽出された有効な組み合わせリストに含まれているか判定
     let validCombos = window._validBuyCombos || [];
     let isMatched = validCombos.includes(selectedCombo);
 
@@ -2835,24 +3056,17 @@ function checkHitResult() {
         judgeEl.innerHTML = `<span style="color: blue;">ハズレ</span>`;
     }
 
-    // 判定状態を保持して再描画（買い目一覧の該当部分を赤字にするため）
     window._currentHitTarget = isMatched ? selectedCombo : null;
     if (typeof extractBuy === "function" && window._wakurenResult) {
-        // 再描画を安全に行うため、内部ロジックを再実行してハイライトを反映
-        // ※無限ループ防止のため、HTML再描画部分だけを更新するのが理想ですが、
-        //   シンプルに現在の状態のまま表示を更新したい場合はDOM書換処理を呼びます。
         refreshBuyResultHighlight(selectedCombo, isMatched);
     }
 }
 
-// 買い目一覧の表示から該当の組み合わせを赤文字にするハイライト補助
 function refreshBuyResultHighlight(targetCombo, isMatched) {
     let buyResultEl = document.getElementById("buyResult");
     if (!buyResultEl) return;
     
-    // すでに描画されているテキスト内から該当の組み合わせ文字列を探してスタイルを変更
-    // （完全版のループ内で自動的に window._currentHitTarget を参照して色分けされるよう組み込んでいます）
-    extractBuy(); // 再計算・再描画
+    extractBuy();
     let judgeEl = document.getElementById('hitJudgeDisplay');
     if (judgeEl) {
         if (isMatched) {
@@ -2863,19 +3077,15 @@ function refreshBuyResultHighlight(targetCombo, isMatched) {
     }
 }
 
-// 的中判定エリアや選択状態を完全にクリアする関数
 function resetHitJudge() {
-    // 1. プルダウンの選択を未選択（"--"）に戻す
     ['hitH1', 'hitH2', 'hitH3'].forEach(id => {
         let sel = document.getElementById(id);
         if (sel) sel.value = "";
     });
 
-    // 2. 判定結果の表示（的中・ハズレ）をクリア
     let judgeEl = document.getElementById('hitJudgeDisplay');
     if (judgeEl) judgeEl.innerHTML = "";
 
-    // 3. 内部の判定ターゲット情報をクリア
     window._currentHitTarget = null;
     window._validBuyCombos = [];
 }
