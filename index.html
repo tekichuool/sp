@@ -224,20 +224,33 @@ td {
     margin-right: 15px;
 }
 
-/* 買い目枠連人気 ハイライト表示 */
-.highlight-cell {
-    background-color: #ffeb3b !important;
+/* 買い目枠連人気 ハイライト表示（パステル調の優しい黄色） */
+.highlight-cell,
+.highlight-cell .waku-cell {
+    background: #fff59d !important;
+    color: #333333 !important;
     font-weight: bold;
 }
 
+/* 通常の組番セル背景色 */
 .waku-cell {
     background: #fffde7;
 }
 
-/* ★ 目に優しいマイルドな黄色に変更 */
-.highlight-cell {
-    background: #fff59d !important; /* パステル調の優しい黄色 */
-    color: #333333 !important;       /* 文字のコントラストを保ち、読みやすく */
+/* ★ スコア3以上4未満：目に優しいパステル緑系 */
+.highlight-score-green,
+.highlight-score-green .waku-cell {
+    background: #c8e6c9 !important; /* パステルグリーン */
+    color: #1b5e20 !important;
+    font-weight: bold;
+}
+
+/* ★ スコア4以上：目に優しいパステル赤（ピンク）系 */
+.highlight-score-red,
+.highlight-score-red .waku-cell {
+    background: #ffcdd2 !important; /* パステルピンク／コーラル */
+    color: #b71c1c !important;
+    font-weight: bold;
 }
 
 /* スマホ向け調整 */
@@ -265,7 +278,7 @@ td {
             <textarea id="cname" placeholder="pw151... pw153... pw156..."></textarea>
             <div class="note">
                             ・ <a href="https://tekichuool.github.io/sp/cname.html">CNAME取得</a>　│　<a href="https://tekichuool.github.io/sp/3renpuku.html">3連複</a>　│　<a href="https://www.jra.go.jp/">JRA公式 PC</a>　│　<a href="https://sp.jra.jp/">JRA公式スマホ</a>　│　<a href="https://tekichuool.github.io/sp/howto.html">てきちゅーるの使い方</a><br>
-                ・Ver.3.5　│　★ 馬単専用ページ<br>
+                ・Ver.3.8　│　★ 馬単専用ページ　│　ハイライト色：期待値の高い順　赤　緑　黄<br>
             </div>
         </div>
     </div>
@@ -2356,80 +2369,179 @@ function renderOccurrenceTable(targetId, occData) {
 }
 
 // ================================
+// --- 判定・判定補助関数群（スコア保持マップ連携版） ---
+// ================================
+
+/**
+ * 組番（d.pair）やアイテムに応じたハイライト用クラス名を返す関数
+ * @param {string|Object} pairOrItem - 組番文字列（例: "1-2"）またはデータオブジェクト
+ * @returns {string} CSSクラス名
+ */
+function getHighlightClassForPair(pairOrItem) {
+    if (!pairOrItem) return '';
+
+    // オブジェクトで渡された場合の標準化
+    const item = typeof pairOrItem === 'object' ? pairOrItem : { pair: pairOrItem };
+    const pair = item.pair;
+
+    // ★ 修正ポイント: extractBuy で生成された window._highlightPairScores からスコアを取得
+    const pairScores = window._highlightPairScores || {};
+    const score = item.score !== undefined ? item.score : pairScores[pair];
+
+    // 1. スコア判定がある場合（CSSのスコア用クラスを適用）
+    if (score !== undefined) {
+        if (score >= 4) {
+            return 'highlight-score-red';   // スコア4以上：パステル赤（ピンク）
+        } else if (score >= 3) {
+            return 'highlight-score-green'; // スコア3以上4未満：パステル緑
+        }
+    }
+
+    // 2. グローバル配列（window._highlightPairs）に含まれているかチェック（通常イエロー）
+    const highlightPairs = window._highlightPairs || [];
+    if (highlightPairs.includes(pair)) {
+        return 'highlight-cell';            // 目に優しいマイルドな黄色（#fff59d）
+    }
+
+    // 3. 通常時（ハイライトなし）
+    return '';
+}
+
+/**
+ * 条件チェックボックスのON/OFF判定
+ * @param {string} val - クラス名 '.cond' を持つ要素の value 値
+ * @returns {boolean}
+ */
+function isCondChecked(val) {
+    const chk = document.querySelector(`.cond[value="${val}"]`);
+    return chk ? chk.checked : false;
+}
+
+/**
+ * 2つのオッズの差が指定値（デフォルト0.3）以内か判定する関数
+ * @param {Object} itemA - オッズオブジェクト ({ odds: string|number })
+ * @param {Object} itemB - オッズオブジェクト ({ odds: string|number })
+ * @param {number} maxDiff - 判定閾値（デフォルト 0.3）
+ * @returns {boolean}
+ */
+function isCloseOdds(itemA, itemB, maxDiff = 0.3) {
+    if (!itemA || !itemB) return false;
+    const oddsA = parseFloat(itemA.odds);
+    const oddsB = parseFloat(itemB.odds);
+    if (isNaN(oddsA) || isNaN(oddsB)) return false;
+
+    return Math.abs(oddsA - oddsB) <= maxDiff;
+}
+
+// ================================
 // --- パース関数群 ---
 // ================================
+
+/**
+ * 枠連・馬連等のペアオッズテキストをパースする関数
+ * @param {string} text - 入力テキスト
+ * @param {number} max - 取得する最大件数
+ * @returns {Array<{rank: string, pair: string, odds: string}>}
+ */
 function parsePairOdds(text, max = 999) {
     if (!text) return [];
     return text.split('\n').map(line => {
         const m = line.match(/(\d+)\s+(\d+[\-]\d+)\s+([\d\.]+)/);
         return m ? { rank: m[1], pair: m[2], odds: m[3] } : null;
-    }).filter(x => x).slice(0, max);
+    }).filter(x => x !== null).slice(0, max);
 }
 
-// ★修正: 無限ループ回避処理を適用
+/**
+ * 単勝・複勝オッズテキストをパースする関数
+ * @param {string} text - 入力テキスト
+ * @returns {Array<{rank: string, waku: string, horse: string, win: string, pMin: number, pStr: string, fukuMin: number}>}
+ */
 function parseTanshoFukusho(text) {
     if (!text) return [];
     const tokens = text.split(/[\s\n\r]+/).filter(t => t.length > 0);
     let res = [];
+
     for (let i = 0; i < tokens.length; i++) {
-        if (tokens[i+1] && tokens[i+1].startsWith("枠")) {
+        if (tokens[i + 1] && tokens[i + 1].startsWith("枠")) {
             let win = "0.0", pMin = 999, pStr = "---";
             const maxLook = Math.min(i + 12, tokens.length);
+
             for (let j = i + 3; j < maxLook; j++) {
                 if (!isNaN(tokens[j]) && !tokens[j].includes("-")) {
                     win = tokens[j];
-                    if (tokens[j+1] && tokens[j+2] === "-") {
-                        pMin = parseFloat(tokens[j+1]);
-                        pStr = tokens[j+1] + "-" + tokens[j+3];
+                    if (tokens[j + 1] && tokens[j + 2] === "-") {
+                        pMin = parseFloat(tokens[j + 1]);
+                        pStr = tokens[j + 1] + "-" + tokens[j + 3];
                     }
                     break;
                 }
             }
-            res.push({ rank: tokens[i], waku: tokens[i+1].replace("枠","").charAt(0), horse: tokens[i+2], win, pMin, pStr, fukuMin: pMin });
+            res.push({
+                rank: tokens[i],
+                waku: tokens[i + 1].replace("枠", "").charAt(0),
+                horse: tokens[i + 2],
+                win,
+                pMin,
+                pStr,
+                fukuMin: pMin
+            });
         }
     }
     return res;
 }
 
+// ================================
+// --- テーブル描画関数群 ---
+// ================================
+
+/**
+ * メインオッズテーブル（単勝・複勝）を描画する関数
+ * @param {string} id - 対象テーブル要素のID
+ * @param {Array} data - 馬データ配列
+ * @param {boolean} isP - 複勝表示モードかどうか
+ */
 function renderMainTable(id, data, isP) {
-    const t = document.getElementById(id); 
+    const t = document.getElementById(id);
     if (!t || !data) return;
     t.innerHTML = "";
 
     const rows = [
-        {l:"人気",c:"row-rank"},
-        {l:"枠",c:"row-waku"},
-        {l:"馬番",c:"row-horse"},
-        {l:"オッズ",c:"row-odds"}
+        { l: "人気", c: "row-rank" },
+        { l: "枠", c: "row-waku" },
+        { l: "馬番", c: "row-horse" },
+        { l: "オッズ", c: "row-odds" }
     ];
 
     rows.forEach((row, rIdx) => {
-        let tr = document.createElement("tr"); 
+        let tr = document.createElement("tr");
         tr.className = row.c;
-        tr.innerHTML = `<th class="label-col">${row.l}</th>`;
+
+        // 見出し列の追加
+        let html = `<th class="label-col">${row.l}</th>`;
 
         data.forEach((d) => {
             let val = [
-                d?.rank ?? "",          // 人気
-                d?.waku ?? "",          // 枠
+                d?.rank ?? "",            // 人気
+                d?.waku ?? "",            // 枠
                 d?.horse ?? d?.num ?? "", // 馬番
                 isP ? (d?.pStr ?? "---") : (d?.win ?? "0.0") // オッズ
             ][rIdx];
 
+            // 枠番アイコン描画設定
             let content = (rIdx === 1 && val !== "")
                 ? `<img src="waku/${val}.png" alt="${val}" width="18">`
                 : val;
 
             let cls = "";
 
-            // 単勝オッズ（10.0 以下 → 赤）
+            // 単勝オッズスタイリング（10.0以下 → 赤）
             if (!isP && rIdx === 3) {
                 if (Number(d?.win || 0) <= 10.0) {
                     cls = "odds-red";
                 }
             }
 
-            // 複勝オッズ（fukuMin <= 3.0 → 水色）
+            // 複勝オッズスタイリング（fukuMin <= 3.0 → 水色/判定ハイライト）
             if (isP && rIdx === 3) {
                 const fMin = d?.fukuMin ?? d?.pMin ?? 999;
                 if (Number(fMin) <= 3.0) {
@@ -2439,13 +2551,19 @@ function renderMainTable(id, data, isP) {
                 }
             }
 
-            tr.innerHTML += `<td class="${cls}">${content}</td>`;
+            html += `<td class="${cls}">${content}</td>`;
         });
 
+        tr.innerHTML = html;
         t.appendChild(tr);
     });
 }
 
+/**
+ * 枠連オッズテーブルを描画する関数（10件ごとにテーブル分割）
+ * @param {string} targetId - 出力先コンテナ要素のID
+ * @param {Object} result - 計算結果オブジェクト { list, tateNum, uraNum, ref2Num }
+ */
 function renderWakurenTable(targetId, result) {
     if (!result || !result.list) return;
 
@@ -2454,9 +2572,7 @@ function renderWakurenTable(targetId, result) {
     target.innerHTML = '';
 
     const data = result.list;
-    const headLabel = `縦 ${result.tateNum} 裏 ${result.uraNum} (2人気～: ${result.ref2Num})`;
-
-    const highlightPairs = window._highlightPairs || [];
+    const headLabel = `縦 ${result.tateNum ?? 0} 裏 ${result.uraNum ?? 0} (2人気～: ${result.ref2Num ?? 0})`;
 
     for (let i = 0; i < data.length; i += 10) {
         const chunk = data.slice(i, i + 10);
@@ -2473,34 +2589,22 @@ function renderWakurenTable(targetId, result) {
         chunk.forEach(d => {
             const rankClass = d.isTateme ? 'class="rank-tateme"' : '';
             const oddsClass = Number(d.odds) <= 10 ? 'odds-red' : '';
-            const highlightClass = highlightPairs.includes(d.pair) ? 'highlight-cell' : '';
+            
+            // 買い目条件に該当する場合、行全体に適用するクラス名を取得
+            const rowHighlightClass = getHighlightClassForPair(d);
 
             html += `
-            <tr class="${highlightClass}">
+            <tr class="${rowHighlightClass}">
                 <td ${rankClass}>${d.rank}</td>
-                <td style="background:#fffde7">${d.pair}</td>
+                <td class="waku-cell">${d.pair}</td>
                 <td class="${oddsClass}">${d.odds}</td>
-                <td class="logic-col">${d.logicText}</td>
+                <td class="logic-col">${d.logicText ?? ''}</td>
             </tr>`;
         });
 
         html += `</table>`;
         target.insertAdjacentHTML('beforeend', html);
     }
-}
-
-function isCondChecked(val) {
-    const chk = document.querySelector(`.cond[value="${val}"]`);
-    return chk ? chk.checked : false;
-}
-
-function isCloseOdds(itemA, itemB, maxDiff = 0.3) {
-    if (!itemA || !itemB) return false;
-    const oddsA = parseFloat(itemA.odds);
-    const oddsB = parseFloat(itemB.odds);
-    if (isNaN(oddsA) || isNaN(oddsB)) return false;
-
-    return Math.abs(oddsA - oddsB) <= maxDiff;
 }
 
 // ================================
@@ -2680,7 +2784,34 @@ function extractTateUraBuy(wakurenResult, umatan, tanfuku) {
 }
 
 // ================================
-// --- 買い目抽出 メイン関数（表示修正版） ---
+// --- 期待値スコア マスタ定義 ---
+// ================================
+const ITEM_SCORE_MAP = {
+    // 総合・人気
+    "waku1": 1,        // 枠1人気
+    "waku2": 3,        // 枠2人気
+    "waku3": 4,        // 枠3人気
+    "tate2": 2,        // 枠2番目
+    "ninki2_3": 3,     // 2人気3番目
+    "ninki2_4": 3,     // 2人気4番目
+    "ninki2_5": 2,     // 2人気5番目
+    "ninki2_6": 1,     // 2人気6番目
+
+    // 縦・裏 個別
+    "tate3": 2,        // 縦3番目
+    "ura3": 1,         // 裏3番目
+    "tate4": 1,        // 縦4番目
+    "ura4": 3,         // 裏4番目
+    "tate5": 2,        // 縦5番目
+    "ura5": 2,         // 裏5番目
+    "tate6": 5,        // 縦6番目
+    "ura6": 1,         // 裏6番目
+    "tate7": 5,        // 縦7番目
+    "ura7": 3          // 裏7番目
+};
+
+// ================================
+// --- 買い目抽出 メイン関数（スコア別ハイライト対応・完全版） ---
 // ================================
 function extractBuy() {
     if (!window._wakurenResult) {
@@ -2688,11 +2819,23 @@ function extractBuy() {
         return;
     }
 
+    // ハイライト対象ペアおよびスコア保持用マップのリセット
     window._highlightPairs = [];
+    window._highlightPairScores = {}; // 例: { "5-7": 4, "3-5": 3 }
 
-    const addHighlight = (pair) => {
-        if (pair && !window._highlightPairs.includes(pair)) {
+    // ハイライトペアとスコアの追加・更新関数
+    const addHighlight = (pair, score = 0) => {
+        if (!pair) return;
+        
+        // 既存のハイライト配列に追加
+        if (!window._highlightPairs.includes(pair)) {
             window._highlightPairs.push(pair);
+        }
+        
+        // より高いスコアを記録（複数条件に合致した場合、最大スコアを優先）
+        const currentScore = window._highlightPairScores[pair] || 0;
+        if (score > currentScore) {
+            window._highlightPairScores[pair] = score;
         }
     };
 
@@ -2717,19 +2860,28 @@ function extractBuy() {
         return;
     }
 
+    // 抽出されたブロックをスコア順表示用に保持する配列
+    const validGroupBlocks = [];
+
     let validResultHtml = "";
     let totalResultHtml = "";
 
-    const processBuyResult = (labelTitle, subTitle, items, defaultPair = "") => {
+    // 買い目処理内部関数
+    const processBuyResult = (labelTitle, subTitle, items, defaultPair = "", scoreKey = "") => {
         if (!items) return;
         const itemList = Array.isArray(items) ? items : [items];
 
         itemList.forEach(d => {
             if (!d) return;
 
+            // スコアマスタからスコア取得
+            const score = (typeof ITEM_SCORE_MAP !== "undefined" && ITEM_SCORE_MAP[scoreKey] !== undefined)
+                ? ITEM_SCORE_MAP[scoreKey]
+                : 0;
+
             if (typeof d === "object" && d.hits && Array.isArray(d.hits)) {
                 const pairStr = d.pair || defaultPair;
-                if (pairStr) addHighlight(pairStr);
+                if (pairStr) addHighlight(pairStr, score);
 
                 let validHitsText = [];
                 let totalHitsText = [];
@@ -2746,12 +2898,20 @@ function extractBuy() {
 
                 const headerSub = subTitle ? `${subTitle} ` : "";
 
+                // 通常の有効買い目ブロック生成
                 if (validHitsText.length > 0) {
-                    validResultHtml += `【${labelTitle}】<br>`;
-                    if (pairStr) validResultHtml += `${headerSub}<span style="color:blue; font-weight:bold;">${pairStr}</span><br>`;
-                    validResultHtml += validHitsText.join(" ") + "<br><br>";
+                    const blockHtml = `【${labelTitle}】<br>${pairStr ? `${headerSub}<span style="color:blue; font-weight:bold;">${pairStr}</span><br>` : ""}${validHitsText.join(" ")}<br><br>`;
+                    validResultHtml += blockHtml;
+
+                    // スコア順用のブロック情報として保存
+                    const scoreBlockHtml = `【${labelTitle}】 <span style="color:blue; font-weight:bold;">(スコア${score})</span><br>${pairStr ? `${headerSub}<span style="color:blue; font-weight:bold;">${pairStr}</span><br>` : ""}${validHitsText.join(" ")}<br><br>`;
+                    validGroupBlocks.push({
+                        score: score,
+                        html: scoreBlockHtml
+                    });
                 }
 
+                // 除外含む全件ブロック生成
                 if (totalHitsText.length > 0) {
                     totalResultHtml += `【${labelTitle}】<br>`;
                     if (pairStr) totalResultHtml += `${headerSub}<span style="color:blue; font-weight:bold;">${pairStr}</span><br>`;
@@ -2760,7 +2920,7 @@ function extractBuy() {
             } 
             else {
                 const pairStr = defaultPair || (typeof d === "object" ? d.pair : "");
-                if (pairStr) addHighlight(pairStr);
+                if (pairStr) addHighlight(pairStr, score);
 
                 const textContent = Array.isArray(d) ? d.join(" ") : (typeof d === "string" ? d : d.text || "");
                 if (!textContent) return;
@@ -2770,100 +2930,113 @@ function extractBuy() {
 
                 validResultHtml += blockHtml;
                 totalResultHtml += blockHtml;
+
+                // スコア順用のブロック情報として保存
+                const scoreBlockHtml = `【${labelTitle}】 <span style="color:blue; font-weight:bold;">(スコア${score})</span><br>${headerSub}${pairStr ? `<span style="color:blue; font-weight:bold;">${pairStr}</span><br>` : ""}${textContent}<br><br>`;
+                validGroupBlocks.push({
+                    score: score,
+                    html: scoreBlockHtml
+                });
             }
         });
     };
 
-    // 各条件判定＆処理実行
+    // --- 各条件判定＆処理実行 ---
+
     if (isCondChecked("waku1") && typeof extractWaku1Buy === "function") {
         const w1 = extractWaku1Buy(wakuren, umatan, tanfuku);
         const pair1 = wakuren[0] ? wakuren[0].pair : "";
-        if (w1) processBuyResult("枠連1人気", "", w1, pair1);
+        if (w1) processBuyResult("枠連1人気", "", w1, pair1, "waku1");
     }
 
     if (isCondChecked("waku2") && typeof extractWaku2Buy === "function") {
         const w2 = extractWaku2Buy(wakuren, umatan, tanfuku);
         const pair2 = wakuren[1] ? wakuren[1].pair : "";
-        if (w2) processBuyResult("枠連2人気", "", w2, pair2);
+        if (w2) processBuyResult("枠連2人気", "", w2, pair2, "waku2");
     }
 
     if (isCondChecked("waku3") && typeof extractWaku3Buy === "function") {
         const w3 = extractWaku3Buy(wakuren, umatan, tanfuku);
         const pair3 = wakuren[2] ? wakuren[2].pair : "";
-        if (w3) processBuyResult("枠連3人気", "", w3, pair3);
+        if (w3) processBuyResult("枠連3人気", "", w3, pair3, "waku3");
     }
 
     if (isCondChecked("tate2") && typeof extractTate2Buy === "function") {
         const t2 = extractTate2Buy(wakurenResult, umatan, tanfuku);
         const row2 = wakurenResult.list ? wakurenResult.list.find(d => d.logicText && d.logicText.includes("縦2")) : null;
         const pair2 = row2 ? row2.pair : "";
-        if (t2) processBuyResult("縦2番目", "", t2, pair2);
+        if (t2) processBuyResult("縦2番目", "", t2, pair2, "tate2");
     }
 
     if (isCondChecked("tateura3") && typeof extractTateUra3Buy === "function") {
         const t3 = extractTateUra3Buy(wakurenResult, umatan, tanfuku);
         if (t3) {
-            processBuyResult("縦裏3番目", "縦3番目", t3.tate);
-            processBuyResult("縦裏3番目", "裏3番目", t3.ura);
+            processBuyResult("縦裏3番目", "縦3番目", t3.tate, "", "tate3");
+            processBuyResult("縦裏3番目", "裏3番目", t3.ura, "", "ura3");
         }
     }
 
     if (isCondChecked("tateura4") && typeof extractTateUra4Buy === "function") {
         const t4 = extractTateUra4Buy(wakurenResult, umatan, tanfuku);
         if (t4) {
-            processBuyResult("縦裏4番目", "縦4番目", t4.tate);
-            processBuyResult("縦裏4番目", "裏4番目", t4.ura);
+            processBuyResult("縦裏4番目", "縦4番目", t4.tate, "", "tate4");
+            processBuyResult("縦裏4番目", "裏4番目", t4.ura, "", "ura4");
         }
     }
 
     if (isCondChecked("tateura5") && typeof extractTateUra5Buy === "function") {
         const t5 = extractTateUra5Buy(wakurenResult, umatan, tanfuku);
         if (t5) {
-            processBuyResult("縦裏5番目", "縦5番目", t5.tate);
-            processBuyResult("縦裏5番目", "裏5番目", t5.ura);
+            processBuyResult("縦裏5番目", "縦5番目", t5.tate, "", "tate5");
+            processBuyResult("縦裏5番目", "裏5番目", t5.ura, "", "ura5");
         }
     }
 
     if (isCondChecked("tateura6") && typeof extractTateUra6Buy === "function") {
         const t6 = extractTateUra6Buy(wakurenResult, umatan, tanfuku);
         if (t6) {
-            processBuyResult("縦裏6番目", "縦6番目", t6.tate);
-            processBuyResult("縦裏6番目", "裏6番目", t6.ura);
+            processBuyResult("縦裏6番目", "縦6番目", t6.tate, "", "tate6");
+            processBuyResult("縦裏6番目", "裏6番目", t6.ura, "", "ura6");
         }
     }
 
     if (isCondChecked("tateura7") && typeof extractTateUra7Buy === "function") {
         const t7 = extractTateUra7Buy(wakurenResult, umatan, tanfuku);
         if (t7) {
-            processBuyResult("縦裏7番目", "縦7番目", t7.tate);
-            processBuyResult("縦裏7番目", "裏7番目", t7.ura);
+            processBuyResult("縦裏7番目", "縦7番目", t7.tate, "", "tate7");
+            processBuyResult("縦裏7番目", "裏7番目", t7.ura, "", "ura7");
         }
     }
 
     if (isCondChecked("ninki2_3") && typeof extractNinki2_3Buy === "function") {
         const n23 = extractNinki2_3Buy(wakurenResult, umatan, tanfuku);
         const row23 = wakurenResult.list ? wakurenResult.list.find(d => d.logicText && d.logicText.includes("2人気3")) : null;
-        if (n23) processBuyResult("2人気3番目", "", n23, row23 ? row23.pair : "");
+        if (n23) processBuyResult("2人気3番目", "", n23, row23 ? row23.pair : "", "ninki2_3");
     }
 
     if (isCondChecked("ninki2_4") && typeof extractNinki2_4Buy === "function") {
         const n24 = extractNinki2_4Buy(wakurenResult, umatan, tanfuku);
         const row24 = wakurenResult.list ? wakurenResult.list.find(d => d.logicText && d.logicText.includes("2人気4")) : null;
-        if (n24) processBuyResult("2人気4番目", "", n24, row24 ? row24.pair : "");
+        if (n24) processBuyResult("2人気4番目", "", n24, row24 ? row24.pair : "", "ninki2_4");
     }
 
     if (isCondChecked("ninki2_5") && typeof extractNinki2_5Buy === "function") {
         const n25 = extractNinki2_5Buy(wakurenResult, umatan, tanfuku);
         const row25 = wakurenResult.list ? wakurenResult.list.find(d => d.logicText && d.logicText.includes("2人気5")) : null;
-        if (n25) processBuyResult("2人気5番目", "", n25, row25 ? row25.pair : "");
+        if (n25) processBuyResult("2人気5番目", "", n25, row25 ? row25.pair : "", "ninki2_5");
     }
 
     if (isCondChecked("ninki2_6") && typeof extractNinki2_6Buy === "function") {
         const n26 = extractNinki2_6Buy(wakurenResult, umatan, tanfuku);
         const row26 = wakurenResult.list ? wakurenResult.list.find(d => d.logicText && d.logicText.includes("2人気6")) : null;
-        if (n26) processBuyResult("2人気6番目", "", n26, row26 ? row26.pair : "");
+        if (n26) processBuyResult("2人気6番目", "", n26, row26 ? row26.pair : "", "ninki2_6");
     }
 
+    // --- スコア降順ソート＆スコア順HTMLの組み立て ---
+    validGroupBlocks.sort((a, b) => b.score - a.score);
+    const sortedScoreResultHtml = validGroupBlocks.map(b => b.html).join("");
+
+    // 馬単抽出点数の集計
     const validCount = [...validResultHtml.matchAll(/\b\d{1,2}-\d{1,2}\b(?=\s*\()/g)].length;
     const totalCount = [...totalResultHtml.matchAll(/\b\d{1,2}-\d{1,2}\b(?=\s*\()/g)].length;
 
@@ -2873,6 +3046,18 @@ function extractBuy() {
                 <div style="font-weight:bold; font-size:16px; margin-bottom:10px; color:#1a5276;">
                     買い目抽出 結果 馬単抽出：<span style="color:red;">${validCount}</span> 点
                 </div>
+                
+                <!-- 青文字・太字のスコア順タイトル -->
+                <div style="color:#0033cc; font-weight:bold; font-size:16px; margin-top:15px; margin-bottom:12px;">
+                    スコア順
+                </div>
+                
+                <!-- スコア降順に並んだ買い目 -->
+                <div>${sortedScoreResultHtml.trim() || "該当する買い目はありません。"}</div>
+                
+                <hr style="margin: 20px 0; border:0; border-top:1px dashed #ccc;">
+                
+                <!-- 従来の通常表示買い目 -->
                 <div>${validResultHtml.trim() || "該当する買い目はありません。"}</div>
             </div>
 
